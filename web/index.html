@@ -58,29 +58,8 @@
       maxZoom: 11
     });
 
-    // Fetch overlays from backend API and add as a layer
-    // Map OSM zoom (0-18) to 6 bands (0-5)
-    function zoomToBand(zoom) {
-      // 6 bands, each covering 1 zoom level from 6 to 11
-      if (zoom < 7) return 0; // 6–7: name_0
-      if (zoom < 8) return 1; // 7–8: name_1
-      if (zoom < 9) return 2; // 8–9: name_2
-      if (zoom < 10) return 3; // 9–10: name_3
-      if (zoom < 11) return 4; // 10–11: name_4
-      return 5; // 11+: name_5
-    }
-
-    let lastBand = null;
-    let lastBounds = null;
-
-    function emptyFeatureCollection() {
-      return { type: 'FeatureCollection', features: [] };
-    }
-
-    function getBoundariesSource() {
-      const src = map.getSource('boundaries');
-      return src && typeof src.setData === 'function' ? src : null;
-    }
+    // Vector tiles (MVT) served by the API.
+    // These auto-load as you pan/zoom, and are generally much faster than shipping large GeoJSON blobs.
 
     function computeDepthFromProps(props) {
       // Depth is the count of populated name_1..name_5.
@@ -93,65 +72,20 @@
       return depth;
     }
 
-    function boundsToArray(bounds) {
-      return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
-    }
-
-    function boundsChanged(a, b) {
-      if (!a || !b) return true;
-      for (let i = 0; i < 4; i++) {
-        if (Math.abs(a[i] - b[i]) > 1e-6) return true;
-      }
-      return false;
-    }
-
-    function fetchAndDisplayOverlays(force = false) {
-      const bounds = map.getBounds();
-      const boundsArr = boundsToArray(bounds);
-      const zoom = map.getZoom();
-      const band = zoomToBand(zoom);
-      const bboxChanged = boundsChanged(boundsArr, lastBounds);
-      const bandChanged = band !== lastBand;
-      if (force || bboxChanged || bandChanged) {
-        lastBounds = boundsArr;
-        lastBand = band;
-        console.log(`Fetching overlays: zoom=${zoom}, band=${band}`);
-        fetch(`http://localhost:8080/api/overlays?minLon=${boundsArr[0]}&minLat=${boundsArr[1]}&maxLon=${boundsArr[2]}&maxLat=${boundsArr[3]}&zoom=${zoom}`)
-          .then(resp => resp.json())
-          .then(data => {
-            const featureCount = data && data.features ? data.features.length : 0;
-            console.log(`Overlay fetch result: features=${featureCount}`);
-
-            const src = getBoundariesSource();
-            if (!src) {
-              console.warn('Boundaries source not ready; skipping setData');
-              return;
-            }
-
-            // Update data in-place; do not remove/re-add layers (prevents event-handler buildup
-            // and preserves layer order).
-            src.setData(data || emptyFeatureCollection());
-
-            // Clear any existing hover highlight on data refresh.
-            if (map.getLayer('boundaries-highlight')) {
-              map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
-            }
-          });
-      }
-    }
-
     map.on('load', () => {
-      // Create a stable source + layer stack once, then update via setData().
-      map.addSource('boundaries', {
-        type: 'geojson',
-        data: emptyFeatureCollection()
+      map.addSource('admin-tiles', {
+        type: 'vector',
+        tiles: ['http://localhost:8080/api/tiles/{z}/{x}/{y}.mvt'],
+        minzoom: 0,
+        maxzoom: 14
       });
 
       // Transparent fill for hit-testing.
       map.addLayer({
         id: 'boundaries-fill',
         type: 'fill',
-        source: 'boundaries',
+        source: 'admin-tiles',
+        'source-layer': 'admin',
         paint: {
           'fill-color': '#000000',
           'fill-opacity': 0
@@ -162,7 +96,8 @@
       map.addLayer({
         id: 'boundaries-highlight',
         type: 'fill',
-        source: 'boundaries',
+        source: 'admin-tiles',
+        'source-layer': 'admin',
         paint: {
           'fill-color': '#00aaff',
           'fill-opacity': 0.18
@@ -174,7 +109,8 @@
       map.addLayer({
         id: 'boundaries-line',
         type: 'line',
-        source: 'boundaries',
+        source: 'admin-tiles',
+        'source-layer': 'admin',
         paint: {
           'line-color': '#ff0000',
           'line-width': 2
@@ -225,11 +161,7 @@
         tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
         tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
       });
-
-      fetchAndDisplayOverlays(true);
     });
-    map.on('moveend', () => fetchAndDisplayOverlays());
-    map.on('zoomend', () => fetchAndDisplayOverlays());
   </script>
 </body>
 </html>
