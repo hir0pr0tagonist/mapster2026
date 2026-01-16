@@ -31,6 +31,8 @@ Kubernetes manifests live in `k8s/`.
 
 Quick start: see [k8s/README.md](k8s/README.md).
 
+Deploying to STACKIT: see [DEPLOYMENT_STACKIT.md](DEPLOYMENT_STACKIT.md).
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed breakdown of components, data flow, and design choices.
