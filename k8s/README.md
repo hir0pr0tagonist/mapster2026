@@ -13,12 +13,19 @@ Option A (simple): build on the host, then load into minikube
 - `minikube image load mapster-cloud-web:latest`
 - `minikube image load mapster-cloud-import:latest`
 
+If you rebuild an image but minikube still seems to run an older digest, use the most reliable method:
+
+- `docker save mapster-cloud-import:latest | minikube image load - --overwrite=true`
+
 Option B: build directly inside the minikube docker daemon
 - `eval $(minikube -p minikube docker-env)`
 - `docker compose build api web import`
 
 ## 3) Provide the GeoPackage to the import job
-The import job expects `/data/planet.gpkg` inside the pod.
+The import job reads a GeoPackage path from `GPKG_PATH`.
+
+In Kubernetes, volume mounts can hide files baked into the image. The import job therefore runs the
+script from `/usr/local/bin/upload_geopackage.sh` (not under `/data`).
 
 Because the GPKG is large, the recommended minikube workflow is to mount your local directory into the
 minikube node using `minikube mount` (no huge copy).

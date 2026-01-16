@@ -76,6 +76,12 @@ The system supports two ways of delivering administrative boundaries to the brow
 - Drops/refreshes data to avoid duplication across runs.
 - Imports layers deterministically to avoid repeated ADM_0 rows.
 
+**Kubernetes note (volume shadowing)**
+
+In Kubernetes, it's common to mount a volume at `/data`. A volume mount hides any files baked into the
+container image at the same path. To avoid the import script "disappearing" when `/data` is mounted,
+the import image places the script at `/usr/local/bin/upload_geopackage.sh` and executes it from there.
+
 ## Networking
 - All services are on the default Docker Compose network, allowing inter-service communication by container name (e.g., `api`, `postgis`).
 - Frontend (web) calls backend (api) via HTTP. In local dev, the browser uses host ports:
@@ -113,6 +119,7 @@ For both overlays and tiles, OSM zoom 6..11 is mapped to depth 0..5.
 - `web/` — Frontend (index.html, JS, Nginx Dockerfile).
 - `postgis/initdb/` — PostGIS initialization scripts.
 - `postgis/import/` — Data import scripts (GeoPackage → PostGIS).
+- `k8s/` — Kubernetes manifests (minikube-ready) for PostGIS, API, web, ingress, and the import job.
 
 ## Future Extensions
 - Add authentication/authorization to API.

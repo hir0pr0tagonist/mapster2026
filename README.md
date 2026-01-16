@@ -1,35 +1,36 @@
-# Mapster TileServer GL Setup
-
-## 1. Clean Start
-- All previous solution files have been removed.
-- This project is now ready for a fresh TileServer GL deployment.
-
-## 2. How to Run TileServer GL
-1. Place your `.mbtiles` files in the `mbtiles/` directory.
-2. Run the shell script:
-	```sh
-	./run-tileserver.sh
-	```
-3. Access the TileServer GL web UI at [http://localhost:8080](http://localhost:8080).
-
-## 3. Next Steps
-- Generate or download a sample `.mbtiles` file and place it in `mbtiles/`.
-- Verify that tiles are served and visible in the web UI.
-
-## 4. Useful Links
-- [TileServer GL Docker Hub](https://hub.docker.com/r/klokantech/tileserver-gl)
-- [TileServer GL Documentation](https://tileserver.readthedocs.io/en/latest/)
-- [Tippecanoe (MBTiles generator)](https://github.com/mapbox/tippecanoe)
-
----
-This setup is ready for overlay tile hosting and testing.
 # Mapster Cloud
 
-This folder will contain the cloud-optimized version of Mapster, using Java (Spring Boot), MongoDB, Docker, and Kubernetes-ready deployment files.
+Mapster Cloud is a containerized mapping stack:
 
-## Structure
-- backend/: Spring Boot REST API
-- db/: MongoDB setup and migration scripts
-- deployment/: Docker and Kubernetes manifests
+- **PostGIS** stores administrative boundaries (`admin_areas`).
+- **Spring Boot API** serves boundaries as:
+  - **Vector tiles (MVT)**: `GET /api/tiles/{z}/{x}/{y}.mvt` (fast, incremental)
+  - **GeoJSON overlays**: `GET /api/overlays` (debug/inspection)
+- **MapLibre** frontend renders OSM raster base + boundary overlays.
 
-Further scaffolding will be added in the next steps.
+This repo supports both local Docker Compose and local Kubernetes (Minikube).
+
+## Local (Docker Compose)
+
+Build and run:
+
+```sh
+docker compose up -d --build
+```
+
+Then open:
+
+- UI: `http://localhost:8081/`
+- API: `http://localhost:8080/`
+
+Importing data is handled by the `import` service (see `docker-compose.yml`).
+
+## Local Kubernetes (Minikube)
+
+Kubernetes manifests live in `k8s/`.
+
+Quick start: see [k8s/README.md](k8s/README.md).
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed breakdown of components, data flow, and design choices.

@@ -3,20 +3,26 @@
 
 set -euo pipefail
 
-GPKG_PATH="/data/planet.gpkg"  # Path inside the container
-PGUSER="mapster"
-PGPASSWORD="mapsterpass"
-PGDATABASE="mapster"
-PGHOST="postgis"
-PGPORT="5432"
+# Allow overriding via environment (useful for Kubernetes).
+GPKG_PATH="${GPKG_PATH:-/data/planet.gpkg}"  # Path inside the container
+PGUSER="${PGUSER:-mapster}"
+PGPASSWORD="${PGPASSWORD:-mapsterpass}"
+PGDATABASE="${PGDATABASE:-mapster}"
+PGHOST="${PGHOST:-postgis}"
+PGPORT="${PGPORT:-5432}"
 
-export PGPASSWORD=$PGPASSWORD
+export PGPASSWORD
 
 # Wait for PostGIS to be ready
-until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do
+until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do
   echo "Waiting for PostGIS to be ready..."
   sleep 2
 done
+
+if [[ ! -f "$GPKG_PATH" ]]; then
+  echo "ERROR: GeoPackage not found at: $GPKG_PATH" >&2
+  exit 1
+fi
 
 echo "Dropping existing admin_areas table (if any) to avoid duplicate imports..."
 psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 \

@@ -35,18 +35,14 @@ spec:
             - -lc
             - |
               set -euo pipefail
-              if [ ! -f /host-geodata/gadm_410-levels.gpkg ]; then
-                echo "Expected GeoPackage at /host-geodata/gadm_410-levels.gpkg" >&2
-                echo "For minikube, run: minikube mount <repo>/postgis/geodata:/host/geodata" >&2
-                exit 1
-              fi
-              ln -sf /host-geodata/gadm_410-levels.gpkg /data/planet.gpkg
-              exec /data/upload_geopackage.sh
+              exec /usr/local/bin/upload_geopackage.sh
           env:
             - name: PGHOST
               value: postgis
             - name: PGPORT
               value: "5432"
+            - name: GPKG_PATH
+              value: /host-geodata/gadm_410-levels.gpkg
             - name: PGDATABASE
               valueFrom:
                 secretKeyRef:
@@ -63,14 +59,9 @@ spec:
                   name: postgis-secret
                   key: POSTGRES_PASSWORD
           volumeMounts:
-            - name: gpkg
-              mountPath: /data
             - name: host-geodata
               mountPath: /host-geodata
       volumes:
-        - name: gpkg
-          persistentVolumeClaim:
-            claimName: gpkg-data
         - name: host-geodata
           hostPath:
             path: /host/geodata
