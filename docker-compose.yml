@@ -1,0 +1,46 @@
+version: '3.8'
+services:
+  postgis:
+    image: postgis/postgis:latest
+    container_name: postgis
+    environment:
+      POSTGRES_DB: mapster
+      POSTGRES_USER: mapster
+      POSTGRES_PASSWORD: mapsterpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgis/initdb:/docker-entrypoint-initdb.d
+      - postgis-data:/var/lib/postgresql/data
+  api:
+    build:
+      context: ./api
+    container_name: api
+    environment:
+      - SPRING_PROFILES_ACTIVE=default
+    depends_on:
+      - postgis
+    ports:
+      - "8080:8080"
+    networks:
+      - default
+
+  import:
+    build: .
+    container_name: import
+    depends_on:
+      - postgis
+    volumes:
+      - /home/vman/Development/mapster/mapster-cloud/postgis/geodata/gadm_410-levels.gpkg:/data/planet.gpkg
+    entrypoint: ["/data/upload_geopackage.sh"]
+
+  web:
+    build: ./web
+    container_name: web
+    ports:
+      - "8081:80"
+    depends_on:
+      - postgis
+
+volumes:
+  postgis-data:
