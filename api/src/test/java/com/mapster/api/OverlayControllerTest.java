@@ -33,7 +33,7 @@ class OverlayControllerTest {
 
     @Test
     void returnsEmptyFeatureCollectionWhenJdbcReturnsNull() throws Exception {
-        when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any(), any(), any()))
+                when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any(), any(), any()))
                 .thenReturn(null);
 
         String body = mockMvc.perform(
@@ -58,7 +58,7 @@ class OverlayControllerTest {
 
     @Test
     void buildsSqlThatEmitsGeoJsonFeaturesAndDepthFilter() throws Exception {
-        when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any(), any(), any()))
+                when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any(), any(), any()))
                 .thenReturn("{\"type\":\"FeatureCollection\",\"features\":[]}");
 
         mockMvc.perform(
@@ -79,6 +79,10 @@ class OverlayControllerTest {
         assertThat(sql).contains("'type', 'Feature'");
         assertThat(sql).contains("'geometry'");
         assertThat(sql).contains("ST_AsGeoJSON(");
+
+        // Ensure bbox operator is used for index-friendly filtering.
+        assertThat(sql).contains("WITH env AS");
+        assertThat(sql).contains("geom && env.e");
 
         // With zoom=10 => depth 4, enforce exact depth (name_4 present, name_5 absent)
         assertThat(sql).contains("AND name_4 IS NOT NULL");
