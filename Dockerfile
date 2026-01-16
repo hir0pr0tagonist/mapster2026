@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/ap
 WORKDIR /data
 
 # Copy the upload script into the image and set executable bit
-COPY import/upload_geopackage.sh /data/upload_geopackage.sh
+COPY postgis/import/upload_geopackage.sh /data/upload_geopackage.sh
 RUN chmod +x /data/upload_geopackage.sh
 
 # Entrypoint for running import scripts

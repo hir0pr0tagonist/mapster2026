@@ -1,1 +1,7 @@
 *.gpkg
+
+# Build artifacts
+**/target/
+
+# OS/editor cruft
+.DS_Store

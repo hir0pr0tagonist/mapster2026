@@ -73,6 +73,26 @@
     let lastBand = null;
     let lastBounds = null;
 
+    function emptyFeatureCollection() {
+      return { type: 'FeatureCollection', features: [] };
+    }
+
+    function getBoundariesSource() {
+      const src = map.getSource('boundaries');
+      return src && typeof src.setData === 'function' ? src : null;
+    }
+
+    function computeDepthFromProps(props) {
+      // Depth is the count of populated name_1..name_5.
+      // (name_0 is always the country name)
+      let depth = 0;
+      for (let i = 1; i <= 5; i++) {
+        const v = props && props['name_' + i];
+        if (typeof v === 'string' && v.trim() !== '') depth = i;
+      }
+      return depth;
+    }
+
     function boundsToArray(bounds) {
       return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
     }
@@ -96,91 +116,118 @@
         lastBounds = boundsArr;
         lastBand = band;
         console.log(`Fetching overlays: zoom=${zoom}, band=${band}`);
-        fetch(`http://localhost:8080/api/overlays?minLon=${boundsArr[0]}&minLat=${boundsArr[1]}&maxLon=${boundsArr[2]}&maxLat=${boundsArr[3]}&band=${band}`)
+        fetch(`http://localhost:8080/api/overlays?minLon=${boundsArr[0]}&minLat=${boundsArr[1]}&maxLon=${boundsArr[2]}&maxLat=${boundsArr[3]}&zoom=${zoom}`)
           .then(resp => resp.json())
           .then(data => {
             const featureCount = data && data.features ? data.features.length : 0;
             console.log(`Overlay fetch result: features=${featureCount}`);
-            // Remove previous boundaries layer and source if they exist
-            if (map.getLayer('boundaries-line')) {
-              map.removeLayer('boundaries-line');
+
+            const src = getBoundariesSource();
+            if (!src) {
+              console.warn('Boundaries source not ready; skipping setData');
+              return;
             }
-            if (map.getLayer('boundaries-fill')) {
-              map.removeLayer('boundaries-fill');
-            }
+
+            // Update data in-place; do not remove/re-add layers (prevents event-handler buildup
+            // and preserves layer order).
+            src.setData(data || emptyFeatureCollection());
+
+            // Clear any existing hover highlight on data refresh.
             if (map.getLayer('boundaries-highlight')) {
-              map.removeLayer('boundaries-highlight');
+              map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
             }
-            if (map.getSource('boundaries')) {
-              map.removeSource('boundaries');
-            }
-            // Add new boundaries source and layers
-            map.addSource('boundaries', {
-              type: 'geojson',
-              data: data
-            });
-            // Add transparent fill layer for mouse detection
-            map.addLayer({
-              id: 'boundaries-fill',
-              type: 'fill',
-              source: 'boundaries',
-              paint: {
-                'fill-color': '#000000',
-                'fill-opacity': 0
-              }
-            });
-            map.addLayer({
-              id: 'boundaries-line',
-              type: 'line',
-              source: 'boundaries',
-              paint: {
-                'line-color': '#ff0000',
-                'line-width': 2
-              }
-            });
-            map.addLayer({
-              id: 'boundaries-highlight',
-              type: 'fill',
-              source: 'boundaries',
-              paint: {
-                'fill-color': '#00aaff',
-                'fill-opacity': 0.3
-              },
-              filter: ['==', 'id', ''] // No highlight by default
-            });
-            // Mousemove detection for fill highlight
-            map.on('mousemove', (e) => {
-              const features = map.queryRenderedFeatures(e.point, { layers: ['boundaries-fill'] });
-              if (features && features.length > 0) {
-                const feature = features[0];
-                map.setFilter('boundaries-highlight', ['==', 'id', feature.properties.id]);
-                // Show tooltip with best available name
-                // Assemble hierarchical names for tooltip
-                const names = [];
-                for (let i = 0; i <= 5; i++) {
-                  const key = 'name_' + i;
-                  if (feature.properties[key] && feature.properties[key].trim() !== '') {
-                    names.push(feature.properties[key]);
-                  }
-                }
-                // Fallback: if no name_x, try 'name'
-                if (names.length === 0 && feature.properties.name) {
-                  names.push(feature.properties.name);
-                }
-                tooltip.innerText = names.length > 0 ? names.join('\n') : 'Unknown';
-                tooltip.style.display = 'block';
-                tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
-                tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
-              } else {
-                map.setFilter('boundaries-highlight', ['==', 'id', '']);
-                tooltip.style.display = 'none';
-              }
-            });
           });
       }
     }
 
-    map.on('load', () => fetchAndDisplayOverlays(true));
+    map.on('load', () => {
+      // Create a stable source + layer stack once, then update via setData().
+      map.addSource('boundaries', {
+        type: 'geojson',
+        data: emptyFeatureCollection()
+      });
+
+      // Transparent fill for hit-testing.
+      map.addLayer({
+        id: 'boundaries-fill',
+        type: 'fill',
+        source: 'boundaries',
+        paint: {
+          'fill-color': '#000000',
+          'fill-opacity': 0
+        }
+      });
+
+      // Hover highlight fill UNDER the lines so boundaries remain visible.
+      map.addLayer({
+        id: 'boundaries-highlight',
+        type: 'fill',
+        source: 'boundaries',
+        paint: {
+          'fill-color': '#00aaff',
+          'fill-opacity': 0.18
+        },
+        filter: ['==', ['get', 'id'], '']
+      });
+
+      // Outline always on top.
+      map.addLayer({
+        id: 'boundaries-line',
+        type: 'line',
+        source: 'boundaries',
+        paint: {
+          'line-color': '#ff0000',
+          'line-width': 2
+        }
+      });
+
+      // Single mousemove handler (no duplicates on refresh).
+      map.on('mousemove', (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['boundaries-fill'] });
+        if (!features || features.length === 0) {
+          map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
+          tooltip.style.display = 'none';
+          return;
+        }
+
+        // Prefer the most detailed feature if multiple overlap.
+        let best = features[0];
+        let bestDepth = computeDepthFromProps(best.properties);
+        for (const f of features) {
+          const d = computeDepthFromProps(f.properties);
+          if (d > bestDepth) {
+            best = f;
+            bestDepth = d;
+          }
+        }
+
+        const bestId = best && best.properties ? best.properties.id : null;
+        if (bestId == null) {
+          map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
+          tooltip.style.display = 'none';
+          return;
+        }
+
+        map.setFilter('boundaries-highlight', ['==', ['get', 'id'], bestId]);
+
+        const names = [];
+        for (let i = 0; i <= 5; i++) {
+          const key = 'name_' + i;
+          const v = best.properties && best.properties[key];
+          if (typeof v === 'string' && v.trim() !== '') names.push(v);
+        }
+        if (names.length === 0 && best.properties && best.properties.name) {
+          names.push(best.properties.name);
+        }
+
+        tooltip.innerText = names.length > 0 ? names.join('\n') : 'Unknown';
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
+        tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
+      });
+
+      fetchAndDisplayOverlays(true);
+    });
     map.on('moveend', () => fetchAndDisplayOverlays());
     map.on('zoomend', () => fetchAndDisplayOverlays());
   </script>
