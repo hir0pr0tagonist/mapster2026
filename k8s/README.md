@@ -1,0 +1,51 @@
+# Mapster on Minikube (quick start)
+
+## 1) Prereqs
+- `minikube start`
+- Enable ingress: `minikube addons enable ingress`
+
+## 2) Build images and load into minikube
+This repo currently builds images via Docker Compose. In minikube you have two common options:
+
+Option A (simple): build on the host, then load into minikube
+- `docker compose build api web import`
+- `minikube image load mapster-cloud-api:latest`
+- `minikube image load mapster-cloud-web:latest`
+- `minikube image load mapster-cloud-import:latest`
+
+Option B: build directly inside the minikube docker daemon
+- `eval $(minikube -p minikube docker-env)`
+- `docker compose build api web import`
+
+## 3) Provide the GeoPackage to the import job
+The import job expects `/data/planet.gpkg` inside the pod.
+
+Because the GPKG is large, the recommended minikube workflow is to mount your local directory into the
+minikube node using `minikube mount` (no huge copy).
+
+1) Apply the base resources: `kubectl apply -k k8s/`
+2) In a separate terminal, run (keep it running):
+   - `minikube mount $(pwd)/postgis/geodata:/host/geodata`
+
+Then (re)run the import job:
+- `kubectl -n mapster delete job import-admin-areas --ignore-not-found`
+- `kubectl -n mapster apply -f k8s/import-job.yaml`
+
+If you prefer a "pure k8s" approach (more cloud-like), replace the `minikube mount` step with:
+- downloading the file from object storage in an initContainer, or
+- pre-populating the PVC using a one-off helper pod.
+
+## 4) Access the app
+- Add `mapster.local` to your hosts file:
+  - `echo "$(minikube ip) mapster.local" | sudo tee -a /etc/hosts`
+- Browse: `http://mapster.local/`
+
+## Notes for later cloud deployment (STACKIT or any managed K8s)
+- Replace local image loading with a real container registry (CI builds + versioned tags).
+- Replace the gpkg PVC population step with one of:
+  - baking the GPKG into the import image (bigger image), or
+  - downloading from object storage in an initContainer, or
+  - using a CSI driver for object storage.
+- Use Secrets for DB credentials (already done) and consider ExternalSecrets/Vault later.
+- Use pinned image tags (no `latest`) and define resource requests/limits.
+- Prefer an Ingress controller + cert-manager for TLS.

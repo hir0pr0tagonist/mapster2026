@@ -75,7 +75,8 @@
     map.on('load', () => {
       map.addSource('admin-tiles', {
         type: 'vector',
-        tiles: ['http://localhost:8080/api/tiles/{z}/{x}/{y}.mvt'],
+        // Use a relative URL so this works locally, in minikube Ingress, and in cloud.
+        tiles: [window.location.origin + '/api/tiles/{z}/{x}/{y}.mvt'],
         minzoom: 0,
         maxzoom: 14
       });

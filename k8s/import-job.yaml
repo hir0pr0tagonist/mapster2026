@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: import-admin-areas
+  namespace: mapster
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: import
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-db
+          image: postgis/postgis:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: postgis-secret
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgis -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+                echo "waiting for postgis...";
+                sleep 2;
+              done
+      containers:
+        - name: import
+          image: mapster-cloud-import:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              if [ ! -f /host-geodata/gadm_410-levels.gpkg ]; then
+                echo "Expected GeoPackage at /host-geodata/gadm_410-levels.gpkg" >&2
+                echo "For minikube, run: minikube mount <repo>/postgis/geodata:/host/geodata" >&2
+                exit 1
+              fi
+              ln -sf /host-geodata/gadm_410-levels.gpkg /data/planet.gpkg
+              exec /data/upload_geopackage.sh
+          env:
+            - name: PGHOST
+              value: postgis
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: gpkg
+              mountPath: /data
+            - name: host-geodata
+              mountPath: /host-geodata
+      volumes:
+        - name: gpkg
+          persistentVolumeClaim:
+            claimName: gpkg-data
+        - name: host-geodata
+          hostPath:
+            path: /host/geodata
+            type: Directory

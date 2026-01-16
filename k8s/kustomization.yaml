@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mapster
+resources:
+  - namespace.yaml
+  - postgis-secret.yaml
+  - postgis-pvc.yaml
+  - postgis-service.yaml
+  - postgis-statefulset.yaml
+  - gpkg-pvc.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - ingress.yaml
