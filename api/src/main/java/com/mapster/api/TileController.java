@@ -36,10 +36,7 @@ public class TileController {
             @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch
     ) {
         // Map zoom 6..11 => depth 0..5 (same as GeoJSON endpoint)
-        int depth;
-        if (z < 6) depth = 0;
-        else if (z > 11) depth = 5;
-        else depth = z - 6;
+        int depth = ZoomDepthMapper.depthForTileZoom(z);
 
         String etag = String.format("W/\"z=%d&x=%d&y=%d&depth=%d\"", z, x, y, depth);
         if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {

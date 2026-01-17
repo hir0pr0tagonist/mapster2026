@@ -50,17 +50,7 @@ public class OverlayController {
         // depth 1: country + name_1 (name_2..name_5 are null)
         // ...
         // depth 5: country + name_1..name_5
-        Integer depth = null;
-        if (effectiveZoom != null) {
-            int z = (int) Math.floor(effectiveZoom);
-            if (z < 6) {
-                depth = 0;
-            } else if (z > 11) {
-                depth = 5;
-            } else {
-                depth = z - 6;
-            }
-        }
+        Integer depth = ZoomDepthMapper.depthForOverlayZoom(effectiveZoom);
 
         // Reduce payload size for large polygons at low zoom.
         // IMPORTANT: simplify in meters (Web Mercator) rather than degrees to avoid scale distortions,

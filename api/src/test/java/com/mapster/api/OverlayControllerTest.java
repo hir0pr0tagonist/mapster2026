@@ -11,6 +11,9 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
@@ -91,4 +94,39 @@ class OverlayControllerTest {
         // When zoom/depth is present we simplify geometry (payload control)
         assertThat(sql).contains("ST_SimplifyPreserveTopology");
     }
+
+        @ParameterizedTest
+        @CsvSource({
+                        // zoom, mustContain, mustNotContain
+                        // depth 0
+                        "5.9,AND name_1 IS NULL,AND name_1 IS NOT NULL",
+                        "6.0,AND name_1 IS NULL,AND name_1 IS NOT NULL",
+                        // depth 1
+                        "7.0,AND name_1 IS NOT NULL,AND name_2 IS NOT NULL",
+                        // depth 5
+                        "11.0,AND name_5 IS NOT NULL,AND name_5 IS NULL",
+                        "12.0,AND name_5 IS NOT NULL,AND name_5 IS NULL"
+        })
+        void zoomBoundariesSwitchDepthFilters(double zoom, String mustContain, String mustNotContain) throws Exception {
+                when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any(), any(), any()))
+                                .thenReturn("{\"type\":\"FeatureCollection\",\"features\":[]}");
+
+                mockMvc.perform(
+                                                get("/api/overlays")
+                                                                .param("minLon", "13.38")
+                                                                .param("minLat", "52.51")
+                                                                .param("maxLon", "13.40")
+                                                                .param("maxLat", "52.52")
+                                                                .param("zoom", Double.toString(zoom))
+                                )
+                                .andExpect(status().isOk());
+
+                ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+                verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), eq(String.class), any(), any(), any(), any());
+
+                String sql = sqlCaptor.getValue();
+                assertThat(sql).contains(mustContain);
+                assertThat(sql).doesNotContain(mustNotContain);
+        }
 }
+
