@@ -8,7 +8,11 @@ Mapster Cloud is a containerized mapping stack:
   - **GeoJSON overlays**: `GET /api/overlays` (debug/inspection)
 - **MapLibre** frontend renders OSM raster base + boundary overlays.
 
-This repo supports both local Docker Compose and local Kubernetes (Minikube).
+This repo supports:
+
+- local Docker Compose
+- local Kubernetes (Minikube)
+- managed Kubernetes (STACKIT) via a Kustomize overlay
 
 ## Local (Docker Compose)
 
@@ -31,7 +35,16 @@ Kubernetes manifests live in `k8s/`.
 
 Quick start: see [k8s/README.md](k8s/README.md).
 
-Deploying to STACKIT: see [DEPLOYMENT_STACKIT.md](DEPLOYMENT_STACKIT.md).
+Deploying to STACKIT (managed Kubernetes): see [DEPLOYMENT_STACKIT.md](DEPLOYMENT_STACKIT.md) and the overlay README at [k8s/overlays/stackit/README.md](k8s/overlays/stackit/README.md).
+
+## Public URL contract
+
+When deployed behind an Ingress on a real domain, the intended contract is:
+
+- UI at `https://YOUR_DOMAIN/`
+- API under `https://YOUR_DOMAIN/api/...`
+
+In the Spring Boot API this is implemented via `server.servlet.context-path=/api`, so controllers map routes like `/tiles/...` and `/overlays`, and they are served externally as `/api/tiles/...` and `/api/overlays`.
 
 ## Architecture
 

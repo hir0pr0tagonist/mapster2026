@@ -28,7 +28,7 @@ public class TileController {
     private JdbcTemplate jdbcTemplate;
 
     @CrossOrigin(origins = "*")
-    @GetMapping(value = "/api/tiles/{z}/{x}/{y}.mvt")
+    @GetMapping(value = "/tiles/{z}/{x}/{y}.mvt")
     public ResponseEntity<byte[]> getTile(
             @PathVariable("z") int z,
             @PathVariable("x") int x,

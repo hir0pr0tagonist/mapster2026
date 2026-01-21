@@ -41,6 +41,11 @@ The system supports two ways of delivering administrative boundaries to the brow
   - Uses bbox prefiltering (`geom && envelope`) plus exact intersects, and emits valid GeoJSON Features.
   - Applies simplification in meters (EPSG:3857) + snap-to-grid, transformed back to 4326, to reduce payload while keeping borders visually consistent.
 
+**Routing note (Ingress-friendly)**
+
+When running behind Kubernetes Ingress under a single host, the API is served under `/api/...` via `server.servlet.context-path=/api`.
+Controller mappings intentionally do not hardcode `/api` (e.g. `/tiles/...`, `/overlays`) so the same code works both behind Ingress and when port-forwarded.
+
 **HTTP performance**
 
 - **gzip** is enabled for large responses, including MVT.
@@ -82,11 +87,24 @@ In Kubernetes, it's common to mount a volume at `/data`. A volume mount hides an
 container image at the same path. To avoid the import script "disappearing" when `/data` is mounted,
 the import image places the script at `/usr/local/bin/upload_geopackage.sh` and executes it from there.
 
+**Kubernetes import (cloud-ready)**
+
+For managed clusters, the import Job uses an initContainer to download the GPKG from S3-compatible object storage into an `emptyDir` volume before running the import container. Credentials and download parameters are provided via a Kubernetes Secret (see the STACKIT overlay documentation).
+
 ## Networking
 - All services are on the default Docker Compose network, allowing inter-service communication by container name (e.g., `api`, `postgis`).
 - Frontend (web) calls backend (api) via HTTP. In local dev, the browser uses host ports:
   - `http://localhost:8081` for the UI
   - `http://localhost:8080` for API endpoints
+
+### Kubernetes (managed cluster) networking
+
+In Kubernetes deployments (e.g. STACKIT), `web` and `api` are exposed via an Ingress on a single host:
+
+- `/` routes to `web`
+- `/api` routes to `api`
+
+Ingress is handled by an Ingress controller (e.g. ingress-nginx). The Ingress resource must specify an IngressClass (for ingress-nginx: `spec.ingressClassName: nginx`) so the controller actually reconciles it.
 
 ## Data Flow
 1. **User loads map in browser (localhost:8081).**
@@ -120,6 +138,21 @@ For both overlays and tiles, OSM zoom 6..11 is mapped to depth 0..5.
 - `postgis/initdb/` — PostGIS initialization scripts.
 - `postgis/import/` — Data import scripts (GeoPackage → PostGIS).
 - `k8s/` — Kubernetes manifests (minikube-ready) for PostGIS, API, web, ingress, and the import job.
+
+### STACKIT overlay
+
+For managed Kubernetes (STACKIT), the repo includes a Kustomize overlay that:
+
+- uses versioned images from a real registry
+- configures image pull secrets for private registries
+- replaces the local hostPath import flow with an object-storage download
+- pins IngressClass and real hostnames
+
+See [k8s/overlays/stackit/](k8s/overlays/stackit/).
+
+### PostGIS on Kubernetes volumes
+
+On some storage backends, mounting the PV directly at `/var/lib/postgresql/data` causes `initdb` to fail because the mount contains a `lost+found` directory. The Kubernetes manifests set `PGDATA` to a subdirectory (e.g. `/var/lib/postgresql/data/pgdata`) to avoid this.
 
 ## Future Extensions
 - Add authentication/authorization to API.

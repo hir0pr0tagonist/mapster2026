@@ -23,14 +23,14 @@ public class OverlayController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @GetMapping("/api/test")
+    @GetMapping("/test")
     public String testEndpoint() {
-        logger.info("[DEBUG] /api/test endpoint called");
+        logger.info("[DEBUG] /test endpoint called");
         return "test-ok";
     }
 
     @CrossOrigin(origins = "*")
-    @GetMapping(value = "/api/overlays", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/overlays", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getOverlays(
             @RequestParam("minLon") double minLon,
             @RequestParam("minLat") double minLat,

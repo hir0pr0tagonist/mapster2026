@@ -5,3 +5,6 @@
 
 # OS/editor cruft
 .DS_Store
+
+# Kubeconfigs / cluster credentials
+mapster.yml

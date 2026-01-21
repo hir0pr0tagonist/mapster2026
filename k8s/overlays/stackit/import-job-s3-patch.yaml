@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: import-admin-areas
+  namespace: mapster
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: download-gpkg
+          image: amazon/aws-cli:2.15.57
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: object-storage-secret
+          command:
+            - sh
+            - -c
+            - |
+              set -euo pipefail
+              mkdir -p /gpkg
+              echo "Downloading s3://${S3_BUCKET}/${S3_KEY} from ${S3_ENDPOINT}" >&2
+              aws --endpoint-url "${S3_ENDPOINT}" s3 cp "s3://${S3_BUCKET}/${S3_KEY}" /gpkg/gadm_410-levels.gpkg
+              ls -lh /gpkg
+          volumeMounts:
+            - name: gpkg
+              mountPath: /gpkg
+
+      containers:
+        - name: import
+          env:
+            - name: GPKG_PATH
+              value: /gpkg/gadm_410-levels.gpkg
+          volumeMounts:
+            - name: host-geodata
+              $patch: delete
+            - name: gpkg
+              mountPath: /gpkg
+
+      volumes:
+        - name: host-geodata
+          $patch: delete
+        - name: gpkg
+          emptyDir: {}

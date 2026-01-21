@@ -1,5 +1,12 @@
 # Mapster on Minikube (quick start)
 
+This document is for local development on Minikube.
+
+For managed Kubernetes (STACKIT), use the overlay docs:
+
+- [k8s/overlays/stackit/README.md](k8s/overlays/stackit/README.md)
+- [DEPLOYMENT_STACKIT.md](../DEPLOYMENT_STACKIT.md)
+
 ## 1) Prereqs
 - `minikube start`
 - Enable ingress: `minikube addons enable ingress`

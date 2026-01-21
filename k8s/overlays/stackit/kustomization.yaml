@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Vendored base manifests so older kubectl/kustomize builds don't reject
+  # parent-directory references (security: file must be in/under overlay dir).
+  - base/namespace.yaml
+  - base/postgis-secret.yaml
+  - base/postgis-pvc.yaml
+  - base/postgis-service.yaml
+  - base/postgis-statefulset.yaml
+  - base/gpkg-pvc.yaml
+  - base/api-deployment.yaml
+  - base/api-service.yaml
+  - base/web-deployment.yaml
+  - base/web-service.yaml
+  - base/ingress.yaml
+  - base/import-job.yaml
+
+# Override local images with your registry + version tag.
+# Edit REGISTRY/PROJECT and tags before applying.
+images:
+  - name: mapster-cloud-api
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-api
+    newTag: 0.1.1
+  - name: mapster-cloud-web
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-web
+    newTag: 0.1.0
+  - name: mapster-cloud-import
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-import
+    newTag: 0.1.0
+
+patchesStrategicMerge:
+  - import-job-s3-patch.yaml
+  - api-deployment-observability-patch.yaml
+  - postgis-pvc-size-patch.yaml
+  - gpkg-pvc-delete-patch.yaml
+  - api-image-pull-secret-patch.yaml
+  - web-image-pull-secret-patch.yaml
+  - import-job-image-pull-secret-patch.yaml
+
+# Replace the ingress host (base uses mapster.local).
+patchesJson6902:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: mapster
+    patch: |-
+      - op: add
+        path: /spec/ingressClassName
+        value: nginx
+      - op: replace
+        path: /spec/rules/0/host
+        # Set this to your real DNS name later (must be lowercase, RFC1123).
+        # Using a valid default here allows applying the overlay before DNS is set up.
+        value: mapster.info

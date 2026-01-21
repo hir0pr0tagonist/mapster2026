@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: mapster
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          env:
+            - name: TRACING_ENABLED
+              value: "false"
+            - name: TRACING_SAMPLING_PROBABILITY
+              value: "0.1"
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "https://YOUR_OTEL_ENDPOINT/v1/traces"
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              value: "Authorization=Bearer YOUR_TOKEN"

@@ -35,7 +35,7 @@ class TileControllerTest {
         when(jdbcTemplate.queryForObject(anyString(), eq(byte[].class), any(), any(), any()))
                 .thenReturn(new byte[] { 0x1, 0x2, 0x3 });
 
-        mockMvc.perform(get("/api/tiles/6/33/20.mvt"))
+        mockMvc.perform(get("/tiles/6/33/20.mvt"))
                 .andExpect(status().isOk())
             .andExpect(header().string("Content-Type", MediaType.parseMediaType("application/vnd.mapbox-vector-tile").toString()))
                 .andExpect(header().exists("ETag"));
@@ -48,7 +48,7 @@ class TileControllerTest {
         // z=6 => depth=0 per controller mapping
         String etag = "W/\"z=6&x=33&y=20&depth=0\"";
 
-        mockMvc.perform(get("/api/tiles/6/33/20.mvt").header("If-None-Match", etag))
+        mockMvc.perform(get("/tiles/6/33/20.mvt").header("If-None-Match", etag))
                 .andExpect(status().isNotModified())
                 .andExpect(header().string("ETag", etag));
 
@@ -66,7 +66,7 @@ class TileControllerTest {
         void etagDepthMatchesZoomMapping(int z, int expectedDepth) throws Exception {
         String etag = String.format("W/\"z=%d&x=33&y=20&depth=%d\"", z, expectedDepth);
 
-        mockMvc.perform(get(String.format("/api/tiles/%d/33/20.mvt", z)).header("If-None-Match", etag))
+        mockMvc.perform(get(String.format("/tiles/%d/33/20.mvt", z)).header("If-None-Match", etag))
             .andExpect(status().isNotModified())
             .andExpect(header().string("ETag", etag));
 
@@ -84,7 +84,7 @@ class TileControllerTest {
         when(jdbcTemplate.queryForObject(anyString(), eq(byte[].class), any(), any(), any()))
             .thenReturn(new byte[] { 0x1 });
 
-        mockMvc.perform(get(String.format("/api/tiles/%d/33/20.mvt", z)))
+        mockMvc.perform(get(String.format("/tiles/%d/33/20.mvt", z)))
             .andExpect(status().isOk());
 
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);

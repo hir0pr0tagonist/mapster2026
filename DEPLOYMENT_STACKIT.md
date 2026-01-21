@@ -47,6 +47,10 @@ You’ll need these locally:
 - `kustomize` (or `kubectl apply -k` on newer kubectl)
 - `docker`
 
+Note: if you previously used minikube, some setups alias `kubectl` to `minikube kubectl --`.
+That wrapper will keep targeting minikube even if you pass a different kubeconfig.
+Run `type kubectl` and make sure it’s a real kubectl binary (not an alias), or `unalias kubectl` and install a standalone `kubectl`.
+
 Optional but strongly recommended:
 
 - `helm` (for installing cert-manager / external-dns if you choose)
@@ -205,9 +209,9 @@ We’ll store these in Kubernetes as a Secret.
 
 Right now, [k8s/import-job.yaml](k8s/import-job.yaml) is minikube-oriented (hostPath `/host-geodata`).
 
-For STACKIT, create a small overlay directory:
+For STACKIT, use the included overlay directory:
 
-- `k8s/overlays/stackit/`
+- [k8s/overlays/stackit/](k8s/overlays/stackit/)
 
 This overlay will:
 
@@ -215,11 +219,15 @@ This overlay will:
 - configure the import job to download the GPKG from object storage
 - (optionally) configure ingress host + TLS
 
-If you want, I can implement this overlay directly in the repo; for now this guide explains the edits.
+This overlay is already implemented in the repo; you only need to edit a few placeholders.
 
 ### 5.1 Update image references
 
-In [k8s/kustomization.yaml](k8s/kustomization.yaml), you can use `images:` overrides.
+Edit [k8s/overlays/stackit/kustomization.yaml](k8s/overlays/stackit/kustomization.yaml) and set:
+
+- `REGISTRY/PROJECT` (your container registry path)
+- image tags (keep `0.1.0` or bump as you release)
+- `YOUR_DOMAIN` (ingress hostname)
 
 Conceptually:
 
@@ -229,31 +237,25 @@ Conceptually:
 
 ### 5.2 Add imagePullSecrets (if needed)
 
-If you created `regcred`, add to `api-deployment.yaml` and `web-deployment.yaml` and `import-job.yaml`:
-
-- `spec.template.spec.imagePullSecrets: [{ name: regcred }]`
+If your registry is private, create `regcred` in the `mapster` namespace. The STACKIT overlay already includes patches that add `imagePullSecrets: [{ name: regcred }]` for api/web/import.
 
 ### 5.3 Replace hostPath with object download
 
-Approach:
+The STACKIT overlay replaces the import job’s minikube-only `hostPath` with an `initContainer` that downloads the GPKG from S3-compatible object storage into an `emptyDir` volume.
 
-- Add an `initContainer` to the import job that downloads the GPKG into an `emptyDir` volume.
-- Set `GPKG_PATH` to the downloaded file location.
+Create the required secret (edit values):
 
-You’ll need:
+```sh
+kubectl -n mapster create secret generic object-storage-secret \
+  --from-literal=AWS_ACCESS_KEY_ID='YOUR_ACCESS_KEY' \
+  --from-literal=AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY' \
+  --from-literal=AWS_DEFAULT_REGION='us-east-1' \
+  --from-literal=S3_ENDPOINT='https://YOUR_S3_ENDPOINT' \
+  --from-literal=S3_BUCKET='YOUR_BUCKET' \
+  --from-literal=S3_KEY='path/to/gadm_410-levels.gpkg'
+```
 
-- a downloader image (`curlimages/curl`, or `amazon/aws-cli` if S3-compatible, or another STACKIT-supported method)
-- credentials mounted as env vars or a config file
-
-Because every provider differs slightly, I need one detail from you:
-
-- Is STACKIT Object Storage S3-compatible (endpoint URL + access key/secret)?
-
-If yes, the import-job pattern looks like:
-
-- initContainer runs `aws s3 cp s3://BUCKET/KEY /geodata/gadm.gpkg`
-
-If not, we can use HTTPS pre-signed URLs and `curl`.
+If your object storage is *not* S3-compatible, we can switch the download initContainer to use a pre-signed HTTPS URL + `curl` instead.
 
 ### 5.4 Configure the public hostname and TLS
 
@@ -270,21 +272,23 @@ TLS options:
 
 This is the only part where UI differences matter. If you tell me whether STACKIT gives you a managed ingress + cert integration, I can pick the simplest.
 
+Ingress controller note:
+
+- The cluster must have an Ingress controller installed (e.g. ingress-nginx).
+- The Ingress resource must include an IngressClass (for ingress-nginx: `spec.ingressClassName: nginx`) so the controller reconciles it.
+- The STACKIT overlay patches the Ingress to set `ingressClassName: nginx`.
+
 ## Step 6: Deploy to STACKIT
 
-### 6.1 Apply base resources
+### 6.1 Apply the STACKIT overlay
 
 From repo root:
 
 ```sh
-kubectl apply -k k8s/
-```
-
-Then apply your STACKIT overlay (once created), e.g.:
-
-```sh
 kubectl apply -k k8s/overlays/stackit/
 ```
+
+Note: the STACKIT overlay is self-contained (it vendors the base manifests under the overlay directory) so you don't need to apply `k8s/` separately.
 
 ### 6.2 Wait for PostGIS
 
@@ -294,15 +298,19 @@ kubectl -n mapster get pods -w
 
 Wait until PostGIS is `Running` and `Ready`.
 
+If PostGIS crashes during init with an error mentioning `lost+found`, it usually means the PV mount contains a filesystem root. The manifests set `PGDATA` to a subdirectory to avoid this failure mode.
+
 ### 6.3 Run the import job
 
-Once the import job is configured for object storage, run it:
+The overlay applies the import job too. To run (or re-run) it:
 
 ```sh
 kubectl -n mapster delete job import-admin-areas --ignore-not-found
-kubectl -n mapster apply -f k8s/import-job.yaml
+kubectl apply -k k8s/overlays/stackit/
 kubectl -n mapster logs -f job/import-admin-areas
 ```
+
+If the job fails in the `download-gpkg` initContainer with `Key ... does not exist`, your `S3_KEY` value does not match the object path you uploaded. Fix the secret and re-run the job.
 
 ### 6.4 Validate the API
 
@@ -336,6 +344,29 @@ These are the most impactful improvements for a real cloud deployment:
 
 5) **Observability**
 - At minimum: container logs + basic CPU/memory metrics.
+- API has Actuator enabled for:
+  - Kubernetes probes: `/api/actuator/health/liveness` and `/api/actuator/health/readiness`
+  - Prometheus scrape: `/api/actuator/prometheus`
+
+  Quick checks (no ingress changes; uses port-forward):
+
+  ```sh
+  kubectl -n mapster port-forward deploy/api 8080:8080
+  curl -fsS http://localhost:8080/api/actuator/health/readiness
+  curl -fsS http://localhost:8080/api/actuator/prometheus | head
+  ```
+
+  Tracing (OpenTelemetry / OTLP) is supported but **off by default**.
+  To enable it, set these environment variables on the API deployment:
+
+  - `TRACING_ENABLED=true`
+  - `TRACING_SAMPLING_PROBABILITY=0.1` (or `1.0` for debugging)
+  - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://YOUR_OTEL_ENDPOINT/v1/traces`
+  - `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer YOUR_TOKEN` (if your collector requires auth)
+
+  Notes:
+  - Prefer keeping actuator endpoints internal (cluster-only). If you need external access, add a dedicated ingress path for `/actuator` (or a separate management port) and secure it.
+  - The provided Kubernetes manifest already adds Prometheus scrape annotations to the API pods.
 
 ## What I need from you to make this “STACKIT-exact”
 

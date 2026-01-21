@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: import-admin-areas
+  namespace: mapster
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: import
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-db
+          image: postgis/postgis:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: postgis-secret
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgis -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+                echo "waiting for postgis...";
+                sleep 2;
+              done
+      containers:
+        - name: import
+          image: mapster-cloud-import:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              exec /usr/local/bin/upload_geopackage.sh
+          env:
+            - name: PGHOST
+              value: postgis
+            - name: PGPORT
+              value: "5432"
+            - name: GPKG_PATH
+              value: /host-geodata/gadm_410-levels.gpkg
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: host-geodata
+              mountPath: /host-geodata
+      volumes:
+        - name: host-geodata
+          hostPath:
+            path: /host/geodata
+            type: Directory

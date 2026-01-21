@@ -40,7 +40,7 @@ class OverlayControllerTest {
                 .thenReturn(null);
 
         String body = mockMvc.perform(
-                        get("/api/overlays")
+                        get("/overlays")
                                 .param("minLon", "13.38")
                                 .param("minLat", "52.51")
                                 .param("maxLon", "13.40")
@@ -65,7 +65,7 @@ class OverlayControllerTest {
                 .thenReturn("{\"type\":\"FeatureCollection\",\"features\":[]}");
 
         mockMvc.perform(
-                        get("/api/overlays")
+                        get("/overlays")
                                 .param("minLon", "13.38")
                                 .param("minLat", "52.51")
                                 .param("maxLon", "13.40")
@@ -112,7 +112,7 @@ class OverlayControllerTest {
                                 .thenReturn("{\"type\":\"FeatureCollection\",\"features\":[]}");
 
                 mockMvc.perform(
-                                                get("/api/overlays")
+                                                get("/overlays")
                                                                 .param("minLon", "13.38")
                                                                 .param("minLat", "52.51")
                                                                 .param("maxLon", "13.40")
