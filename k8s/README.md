@@ -22,7 +22,13 @@ Option A (simple): build on the host, then load into minikube
 
 If you rebuild an image but minikube still seems to run an older digest, use the most reliable method:
 
+- `docker save mapster-cloud-api:latest | minikube image load - --overwrite=true`
+- `docker save mapster-cloud-web:latest | minikube image load - --overwrite=true`
 - `docker save mapster-cloud-import:latest | minikube image load - --overwrite=true`
+
+Then restart the workloads so they pick up the refreshed image:
+
+- `kubectl -n mapster rollout restart deployment/api deployment/web`
 
 Option B: build directly inside the minikube docker daemon
 - `eval $(minikube -p minikube docker-env)`
