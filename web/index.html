@@ -29,7 +29,10 @@
 <body>
   <div id="map"></div>
   <div id="legend">
-    <div class="title">Land price bands</div>
+    <div class="title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <span id="legend-title">Metric bands</span>
+      <select id="metric-select" style="max-width:160px;"></select>
+    </div>
     <div class="subtitle" id="legend-subtitle">Relative to bbox average</div>
     <div class="row"><span class="swatch" style="background:#00441b"></span><span>&le; 0.50× avg (very cheap)</span></div>
     <div class="row"><span class="swatch" style="background:#006d2c"></span><span>&le; 0.75× avg</span></div>
@@ -104,7 +107,7 @@
     }
 
     map.on('load', () => {
-      const METRIC_ID = 'price_eur_per_m2_land';
+      let currentMetricId = 'price_eur_per_m2_land';
 
       // Local dev note:
       // - In Ingress-style setups, the browser can reach the API at same-origin `/api/...`.
@@ -117,6 +120,14 @@
         return sameOriginBase;
       })();
       console.log('Using API base:', apiBase);
+
+      const metricSelect = document.getElementById('metric-select');
+      const legendTitle = document.getElementById('legend-title');
+
+      function setLegendTitle() {
+        if (legendTitle) legendTitle.textContent = `Bands: ${currentMetricId}`;
+      }
+      setLegendTitle();
 
       map.addSource('admin-tiles', {
         type: 'vector',
@@ -309,7 +320,7 @@
           url.searchParams.set('minLat', String(b.getSouth()));
           url.searchParams.set('maxLon', String(b.getEast()));
           url.searchParams.set('maxLat', String(b.getNorth()));
-          url.searchParams.set('metricId', METRIC_ID);
+          url.searchParams.set('metricId', currentMetricId);
           url.searchParams.set('zoom', String(map.getZoom()));
 
           const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
@@ -335,6 +346,61 @@
       const refreshAreaMetricsDebounced = debounce(refreshAreaMetrics, 250);
       map.on('moveend', refreshAreaMetricsDebounced);
       refreshAreaMetrics();
+
+      async function loadMetrics() {
+        if (!metricSelect) return;
+        metricSelect.disabled = true;
+        metricSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = currentMetricId;
+        opt.textContent = 'Loading…';
+        metricSelect.appendChild(opt);
+
+        try {
+          const res = await fetch(apiBase + '/metrics', { headers: { 'Accept': 'application/json' } });
+          if (!res.ok) throw new Error('metrics fetch failed');
+          const metrics = await res.json();
+          const items = Array.isArray(metrics) ? metrics : [];
+
+          const saved = window.localStorage ? window.localStorage.getItem('mapster.metricId') : null;
+          const defaultId = (saved && items.some(m => m && m.metricId === saved))
+            ? saved
+            : (items[0] && items[0].metricId ? items[0].metricId : currentMetricId);
+
+          currentMetricId = defaultId;
+          setLegendTitle();
+
+          metricSelect.innerHTML = '';
+          for (const m of items) {
+            if (!m || !m.metricId) continue;
+            const o = document.createElement('option');
+            o.value = m.metricId;
+            const label = m.description ? `${m.metricId} — ${m.description}` : m.metricId;
+            o.textContent = label;
+            metricSelect.appendChild(o);
+          }
+          metricSelect.value = currentMetricId;
+          metricSelect.disabled = false;
+
+          metricSelect.addEventListener('change', () => {
+            currentMetricId = metricSelect.value;
+            if (window.localStorage) window.localStorage.setItem('mapster.metricId', currentMetricId);
+            setLegendTitle();
+            refreshAreaMetrics();
+          });
+
+          refreshAreaMetrics();
+        } catch (e) {
+          metricSelect.disabled = false;
+          metricSelect.innerHTML = '';
+          const o = document.createElement('option');
+          o.value = currentMetricId;
+          o.textContent = currentMetricId;
+          metricSelect.appendChild(o);
+        }
+      }
+
+      loadMetrics();
     });
   </script>
 </body>

@@ -20,7 +20,11 @@ class WebIndexContractTest {
         String html = Files.readString(indexHtml, StandardCharsets.UTF_8);
 
         assertThat(html).contains("map.addSource('admin-tiles'");
-        assertThat(html).contains("/api/tiles/{z}/{x}/{y}.mvt");
+        // Allow either hardcoded '/api' (ingress same-origin) or a dynamic base (compose / minikube).
+        assertThat(html).satisfiesAnyOf(
+            s -> assertThat(s).contains("/api/tiles/{z}/{x}/{y}.mvt"),
+            s -> assertThat(s).contains("/tiles/{z}/{x}/{y}.mvt")
+        );
 
         int fillIdx = html.indexOf("id: 'boundaries-fill'");
         int highlightIdx = html.indexOf("id: 'boundaries-highlight'");
