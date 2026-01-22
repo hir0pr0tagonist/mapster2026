@@ -106,10 +106,21 @@
     map.on('load', () => {
       const METRIC_ID = 'price_eur_per_m2_land';
 
+      // Local dev note:
+      // - In Ingress-style setups, the browser can reach the API at same-origin `/api/...`.
+      // - In docker-compose, the UI is on :8081 and the API is on :8080.
+      // We keep this deterministic (no CORS-dependent probing).
+      const apiBase = (() => {
+        const sameOriginBase = window.location.origin + '/api';
+        const hostBase = window.location.protocol + '//' + window.location.hostname + ':8080/api';
+        if (window.location.port === '8081') return hostBase;
+        return sameOriginBase;
+      })();
+      console.log('Using API base:', apiBase);
+
       map.addSource('admin-tiles', {
         type: 'vector',
-        // Use a relative URL so this works locally, in minikube Ingress, and in cloud.
-        tiles: [window.location.origin + '/api/tiles/{z}/{x}/{y}.mvt'],
+        tiles: [apiBase + '/tiles/{z}/{x}/{y}.mvt'],
         minzoom: 0,
         maxzoom: 14
       });
@@ -293,7 +304,7 @@
       async function refreshAreaMetrics() {
         try {
           const b = map.getBounds();
-          const url = new URL(window.location.origin + '/api/area-metrics');
+          const url = new URL(apiBase + '/area-metrics');
           url.searchParams.set('minLon', String(b.getWest()));
           url.searchParams.set('minLat', String(b.getSouth()));
           url.searchParams.set('maxLon', String(b.getEast()));
