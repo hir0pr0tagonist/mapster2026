@@ -70,6 +70,14 @@ For fast “aggregate up” behavior (Option 1: never distribute down), the impo
   - If coordinates are provided, the API assigns the most detailed containing admin area via point-in-polygon.
   - Updates daily rollups for the assigned area and all its ancestors.
 
+**Synthetic demo data (clustered)**
+
+For demos and development, the database provides a generator that creates spatially clustered observations (e.g. expensive areas tend to be near each other) and updates rollups in one call:
+
+- `SELECT * FROM facts.generate_synthetic_clustered_observations(...)`
+
+This inserts into `facts.observation` and updates `facts_agg.area_metric_daily` via `geo.admin_area_ancestors` (Option 1 semantics: only aggregates upward).
+
 **Routing note (Ingress-friendly)**
 
 When running behind Kubernetes Ingress under a single host, the API is served under `/api/...` via `server.servlet.context-path=/api`.
