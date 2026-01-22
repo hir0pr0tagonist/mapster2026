@@ -21,6 +21,20 @@ The system supports two ways of delivering administrative boundaries to the brow
 - `admin_areas` (SRID 4326): a denormalized table holding admin boundaries across multiple hierarchy depths.
   - Hierarchy depth is inferred by NULL/NOT NULL checks of `name_1..name_5`.
 
+**Facts + metrics (non-geometric domain data)**
+
+To support shading admin areas by one-dimensional metrics (e.g. average land price per m²) while keeping request latency low, Mapster uses a Raw → Canonical → Aggregates pattern in Postgres:
+
+- `facts_raw.raw_record`: append-only landing zone for diverse incoming data formats (CSV, scrapes, exports).
+- `facts.observation`: normalized observations with optional point geometry + assigned admin-area key.
+- `facts_agg.area_metric_daily`: pre-aggregated daily rollups used by the API for fast reads.
+
+Administrative matching uses a **stable area key** derived from `gid_0..gid_5` (not the surrogate `id`, which changes when the import job recreates `admin_areas`).
+
+For fast “aggregate up” behavior (Option 1: never distribute down), the import job rebuilds a closure table:
+
+- `geo.admin_area_ancestors`: `(area_key → ancestor_key)` mappings (including self) with distance.
+
 ### 2. api (Spring Boot Backend Service)
 - **Type:** Java 17+, Spring Boot, REST API
 - **Purpose:**
@@ -40,6 +54,21 @@ The system supports two ways of delivering administrative boundaries to the brow
   - Returns a GeoJSON `FeatureCollection` for a supplied bbox.
   - Uses bbox prefiltering (`geom && envelope`) plus exact intersects, and emits valid GeoJSON Features.
   - Applies simplification in meters (EPSG:3857) + snap-to-grid, transformed back to 4326, to reduce payload while keeping borders visually consistent.
+
+**Metrics endpoints**
+
+- `GET /api/area-metrics`
+  - Returns admin-area GeoJSON for a bbox, enriched with metric rollups from `facts_agg.area_metric_daily`.
+  - Parameters: `minLon`, `minLat`, `maxLon`, `maxLat`, `metricId`, optional `depth`/`zoom`, optional `from`/`to` (defaults to last 30 days).
+
+**Ingestion endpoints (initial scaffold)**
+
+- `POST /api/ingest/raw`
+  - Stores an arbitrary JSON payload into `facts_raw.raw_record` (append-only), for later normalization.
+- `POST /api/ingest/observation`
+  - Accepts a canonical observation (metric/value/time) with either coordinates or an already-known `assignedAreaKey`.
+  - If coordinates are provided, the API assigns the most detailed containing admin area via point-in-polygon.
+  - Updates daily rollups for the assigned area and all its ancestors.
 
 **Routing note (Ingress-friendly)**
 
@@ -80,6 +109,8 @@ Controller mappings intentionally do not hardcode `/api` (e.g. `/tiles/...`, `/o
 - Imports administrative boundary layers from a GeoPackage (GPKG) into `admin_areas`.
 - Drops/refreshes data to avoid duplication across runs.
 - Imports layers deterministically to avoid repeated ADM_0 rows.
+
+After importing `admin_areas`, the import script also rebuilds `geo.admin_area_ancestors` and creates `geo.admin_areas` (a convenience view with computed `area_key` and `depth`).
 
 **Kubernetes note (volume shadowing)**
 

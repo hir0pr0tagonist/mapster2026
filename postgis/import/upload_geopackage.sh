@@ -67,3 +67,102 @@ for layer in "${LAYERS[@]}"; do
       -progress
   fi
 done
+
+echo "Creating geo helper schema/view and rebuilding ancestor closure table..."
+
+psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
+CREATE SCHEMA IF NOT EXISTS geo;
+
+-- Stable key helpers (kept here so the import job can work even before the API runs migrations).
+CREATE OR REPLACE FUNCTION geo.area_key(
+    gid_0 text,
+    gid_1 text,
+    gid_2 text,
+    gid_3 text,
+    gid_4 text,
+    gid_5 text
+) RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT COALESCE(gid_0, '') || '|' ||
+         COALESCE(gid_1, '') || '|' ||
+         COALESCE(gid_2, '') || '|' ||
+         COALESCE(gid_3, '') || '|' ||
+         COALESCE(gid_4, '') || '|' ||
+         COALESCE(gid_5, '');
+$$;
+
+CREATE OR REPLACE FUNCTION geo.area_depth(
+    gid_1 text,
+    gid_2 text,
+    gid_3 text,
+    gid_4 text,
+    gid_5 text
+) RETURNS smallint
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN gid_5 IS NOT NULL THEN 5
+    WHEN gid_4 IS NOT NULL THEN 4
+    WHEN gid_3 IS NOT NULL THEN 3
+    WHEN gid_2 IS NOT NULL THEN 2
+    WHEN gid_1 IS NOT NULL THEN 1
+    ELSE 0
+  END::smallint;
+$$;
+
+-- Convenience view: admin_areas + computed key/depth.
+DROP VIEW IF EXISTS geo.admin_areas;
+CREATE VIEW geo.admin_areas AS
+SELECT
+  a.*,
+  geo.area_key(a.gid_0, a.gid_1, a.gid_2, a.gid_3, a.gid_4, a.gid_5) AS area_key,
+  geo.area_depth(a.gid_1, a.gid_2, a.gid_3, a.gid_4, a.gid_5) AS depth
+FROM public.admin_areas a;
+
+-- Closure table used for "aggregate up". Rebuilt each import so it stays consistent.
+CREATE TABLE IF NOT EXISTS geo.admin_area_ancestors (
+  area_key text NOT NULL,
+  area_depth smallint NOT NULL,
+  ancestor_key text NOT NULL,
+  ancestor_depth smallint NOT NULL,
+  distance smallint NOT NULL,
+  PRIMARY KEY (area_key, ancestor_key)
+);
+
+TRUNCATE geo.admin_area_ancestors;
+
+WITH areas AS (
+  SELECT DISTINCT
+    geo.area_key(gid_0, gid_1, gid_2, gid_3, gid_4, gid_5) AS area_key,
+    geo.area_depth(gid_1, gid_2, gid_3, gid_4, gid_5) AS area_depth,
+    gid_0, gid_1, gid_2, gid_3, gid_4, gid_5
+  FROM public.admin_areas
+), anc AS (
+  SELECT
+    a.area_key,
+    a.area_depth,
+    gs AS ancestor_depth,
+    geo.area_key(
+      a.gid_0,
+      CASE WHEN gs >= 1 THEN a.gid_1 ELSE NULL END,
+      CASE WHEN gs >= 2 THEN a.gid_2 ELSE NULL END,
+      CASE WHEN gs >= 3 THEN a.gid_3 ELSE NULL END,
+      CASE WHEN gs >= 4 THEN a.gid_4 ELSE NULL END,
+      CASE WHEN gs >= 5 THEN a.gid_5 ELSE NULL END
+    ) AS ancestor_key,
+    (a.area_depth - gs)::smallint AS distance
+  FROM areas a
+  JOIN LATERAL generate_series(0, a.area_depth) gs ON true
+)
+INSERT INTO geo.admin_area_ancestors (area_key, area_depth, ancestor_key, ancestor_depth, distance)
+SELECT DISTINCT area_key, area_depth, ancestor_key, ancestor_depth, distance
+FROM anc;
+
+CREATE INDEX IF NOT EXISTS admin_area_ancestors_ancestor_key_idx
+  ON geo.admin_area_ancestors (ancestor_key);
+SQL
+
+echo "Import complete."
