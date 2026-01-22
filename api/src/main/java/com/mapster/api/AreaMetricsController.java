@@ -75,6 +75,18 @@ public class AreaMetricsController {
         params.add(maxLon);
         params.add(maxLat);
 
+        sql.append("areas AS ( ");
+        sql.append("  SELECT DISTINCT ON (a.area_key) a.* ");
+        sql.append("  FROM geo.admin_areas a, env ");
+        sql.append("  WHERE a.geom && env.e ");
+        sql.append("    AND ST_Intersects(a.geom, env.e) ");
+        if (effectiveDepth != null) {
+            sql.append("    AND a.depth = ? ");
+            params.add(effectiveDepth);
+        }
+        sql.append("  ORDER BY a.area_key, a.id ");
+        sql.append(") , ");
+
         sql.append("agg AS ( ");
         sql.append("  SELECT area_key, metric_id, ");
         sql.append("    SUM(sum_value) AS sum_value, ");
@@ -87,6 +99,30 @@ public class AreaMetricsController {
         params.add(effectiveFrom);
         params.add(effectiveTo);
         sql.append("  GROUP BY area_key, metric_id ");
+        sql.append(") , ");
+
+        sql.append("enriched AS ( ");
+        sql.append("  SELECT ");
+        sql.append("    a.*, ");
+        sql.append("    COALESCE(agg.count_value, 0) AS count_value, ");
+        sql.append("    agg.sum_value AS sum_value, ");
+        sql.append("    agg.min_value AS min_value, ");
+        sql.append("    agg.max_value AS max_value, ");
+        sql.append("    CASE ");
+        sql.append("      WHEN agg.count_value IS NULL OR agg.count_value = 0 THEN NULL ");
+        sql.append("      ELSE (agg.sum_value / agg.count_value) ");
+        sql.append("    END AS avg_value ");
+        sql.append("  FROM areas a ");
+        sql.append("  LEFT JOIN agg ON agg.area_key = a.area_key ");
+        sql.append(") , ");
+
+        sql.append("global AS ( ");
+        sql.append("  SELECT ");
+        sql.append("    CASE ");
+        sql.append("      WHEN SUM(count_value) = 0 THEN NULL ");
+        sql.append("      ELSE (SUM(COALESCE(sum_value, 0)) / SUM(count_value)) ");
+        sql.append("    END AS global_avg ");
+        sql.append("  FROM enriched ");
         sql.append(") ");
 
         sql.append("SELECT jsonb_build_object( ");
@@ -94,34 +130,43 @@ public class AreaMetricsController {
         sql.append("  'features', COALESCE(jsonb_agg( ");
         sql.append("    jsonb_build_object( ");
         sql.append("      'type', 'Feature', ");
-        sql.append("      'geometry', ST_AsGeoJSON(a.geom, 6)::jsonb, ");
+        sql.append("      'geometry', ST_AsGeoJSON(e.geom, 6)::jsonb, ");
         sql.append("      'properties', jsonb_build_object( ");
-        sql.append("        'area_key', a.area_key, ");
-        sql.append("        'depth', a.depth, ");
-        sql.append("        'gid_0', a.gid_0, 'gid_1', a.gid_1, 'gid_2', a.gid_2, 'gid_3', a.gid_3, 'gid_4', a.gid_4, 'gid_5', a.gid_5, ");
-        sql.append("        'name_0', a.country, 'name_1', a.name_1, 'name_2', a.name_2, 'name_3', a.name_3, 'name_4', a.name_4, 'name_5', a.name_5, ");
+        sql.append("        'area_key', e.area_key, ");
+        sql.append("        'depth', e.depth, ");
+        sql.append("        'gid_0', e.gid_0, 'gid_1', e.gid_1, 'gid_2', e.gid_2, 'gid_3', e.gid_3, 'gid_4', e.gid_4, 'gid_5', e.gid_5, ");
+        sql.append("        'name_0', e.country, 'name_1', e.name_1, 'name_2', e.name_2, 'name_3', e.name_3, 'name_4', e.name_4, 'name_5', e.name_5, ");
         sql.append("        'metric_id', ?, ");
         params.add(metricId);
-        sql.append("        'count', COALESCE(agg.count_value, 0), ");
-        sql.append("        'min', agg.min_value, ");
-        sql.append("        'max', agg.max_value, ");
-        sql.append("        'avg', CASE WHEN agg.count_value IS NULL OR agg.count_value = 0 THEN NULL ELSE (agg.sum_value / agg.count_value) END ");
+        sql.append("        'count', e.count_value, ");
+        sql.append("        'min', e.min_value, ");
+        sql.append("        'max', e.max_value, ");
+        sql.append("        'avg', e.avg_value, ");
+        sql.append("        'global_avg', global.global_avg, ");
+        sql.append("        'ratio_to_avg', CASE WHEN e.avg_value IS NULL OR global.global_avg IS NULL OR global.global_avg = 0 THEN NULL ELSE (e.avg_value / global.global_avg) END, ");
+        sql.append("        'band', CASE ");
+        sql.append("          WHEN e.avg_value IS NULL OR global.global_avg IS NULL OR global.global_avg = 0 THEN NULL ");
+        sql.append("          WHEN e.avg_value <= global.global_avg THEN CASE ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) <= 0.50 THEN 1 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) <= 0.75 THEN 2 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) <= 0.90 THEN 3 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) <= 0.97 THEN 4 ");
+        sql.append("            ELSE 5 ");
+        sql.append("          END ");
+        sql.append("          ELSE CASE ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) >= 2.00 THEN 10 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) >= 1.50 THEN 9 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) >= 1.25 THEN 8 ");
+        sql.append("            WHEN (e.avg_value / global.global_avg) >= 1.10 THEN 7 ");
+        sql.append("            ELSE 6 ");
+        sql.append("          END ");
+        sql.append("        END ");
         sql.append("      ) ");
         sql.append("    ) ");
         sql.append("  ), '[]'::jsonb) ");
         sql.append(") ");
-        sql.append("FROM ( ");
-        sql.append("  SELECT DISTINCT ON (a.area_key) a.* ");
-        sql.append("  FROM geo.admin_areas a, env ");
-        sql.append("  WHERE a.geom && env.e ");
-        sql.append("    AND ST_Intersects(a.geom, env.e) ");
-        if (effectiveDepth != null) {
-            sql.append("    AND a.depth = ? ");
-            params.add(effectiveDepth);
-        }
-        sql.append("  ORDER BY a.area_key, a.id ");
-        sql.append(") a ");
-        sql.append("LEFT JOIN agg ON agg.area_key = a.area_key ");
+        sql.append("FROM enriched e ");
+        sql.append("CROSS JOIN global ");
 
         try {
             logger.info("[DEBUG] area-metrics bbox=({},{})->({},{}), depth={}, metricId={}, from={}, to={}",

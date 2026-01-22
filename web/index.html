@@ -8,10 +8,41 @@
   <style>
     body, html { margin: 0; padding: 0; height: 100%; }
     #map { width: 100vw; height: 100vh; }
+    #legend {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #aaa;
+      border-radius: 6px;
+      padding: 10px;
+      font: 12px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      z-index: 11;
+      max-width: 230px;
+    }
+    #legend .title { font-weight: 600; margin-bottom: 6px; }
+    #legend .subtitle { color: #333; margin-bottom: 8px; }
+    #legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    #legend .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="legend">
+    <div class="title">Land price bands</div>
+    <div class="subtitle" id="legend-subtitle">Relative to bbox average</div>
+    <div class="row"><span class="swatch" style="background:#00441b"></span><span>&le; 0.50× avg (very cheap)</span></div>
+    <div class="row"><span class="swatch" style="background:#006d2c"></span><span>&le; 0.75× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#31a354"></span><span>&le; 0.90× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#74c476"></span><span>&le; 0.97× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#c7e9c0"></span><span>&le; 1.00× avg</span></div>
+    <hr style="border:none;border-top:1px solid rgba(0,0,0,0.12);margin:8px 0;" />
+    <div class="row"><span class="swatch" style="background:#fee5d9"></span><span>&gt; 1.00× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#fcae91"></span><span>&ge; 1.10× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#fb6a4a"></span><span>&ge; 1.25× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#de2d26"></span><span>&ge; 1.50× avg</span></div>
+    <div class="row"><span class="swatch" style="background:#a50f15"></span><span>&ge; 2.00× avg (very expensive)</span></div>
+  </div>
   <script src="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js"></script>
   <script>
         // Tooltip element
@@ -73,6 +104,8 @@
     }
 
     map.on('load', () => {
+      const METRIC_ID = 'price_eur_per_m2_land';
+
       map.addSource('admin-tiles', {
         type: 'vector',
         // Use a relative URL so this works locally, in minikube Ingress, and in cloud.
@@ -80,6 +113,40 @@
         minzoom: 0,
         maxzoom: 14
       });
+
+      map.addSource('area-metrics', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+
+      const bandToColor = {
+        1: '#00441b',
+        2: '#006d2c',
+        3: '#31a354',
+        4: '#74c476',
+        5: '#c7e9c0',
+        6: '#fee5d9',
+        7: '#fcae91',
+        8: '#fb6a4a',
+        9: '#de2d26',
+        10: '#a50f15'
+      };
+
+      const bandColorExpression = [
+        'match',
+        ['get', 'band'],
+        1, bandToColor[1],
+        2, bandToColor[2],
+        3, bandToColor[3],
+        4, bandToColor[4],
+        5, bandToColor[5],
+        6, bandToColor[6],
+        7, bandToColor[7],
+        8, bandToColor[8],
+        9, bandToColor[9],
+        10, bandToColor[10],
+        'rgba(0,0,0,0)'
+      ];
 
       // Transparent fill for hit-testing.
       map.addLayer({
@@ -118,9 +185,43 @@
         }
       });
 
+      // Metric shading (GeoJSON) underneath the boundary lines.
+      map.addLayer({
+        id: 'area-metrics-fill',
+        type: 'fill',
+        source: 'area-metrics',
+        paint: {
+          'fill-color': bandColorExpression,
+          'fill-opacity': 0.38
+        }
+      }, 'boundaries-line');
+
+      map.addLayer({
+        id: 'area-metrics-highlight',
+        type: 'fill',
+        source: 'area-metrics',
+        paint: {
+          'fill-color': '#00aaff',
+          'fill-opacity': 0.16
+        },
+        filter: ['==', ['get', 'area_key'], '']
+      }, 'boundaries-line');
+
       // Single mousemove handler (no duplicates on refresh).
       map.on('mousemove', (e) => {
+        const metricsFeatures = map.queryRenderedFeatures(e.point, { layers: ['area-metrics-fill'] });
         const features = map.queryRenderedFeatures(e.point, { layers: ['boundaries-fill'] });
+
+        if (metricsFeatures && metricsFeatures.length > 0) {
+          const f = metricsFeatures[0];
+          const areaKey = f && f.properties ? f.properties.area_key : null;
+          if (areaKey) {
+            map.setFilter('area-metrics-highlight', ['==', ['get', 'area_key'], areaKey]);
+          }
+        } else {
+          map.setFilter('area-metrics-highlight', ['==', ['get', 'area_key'], '']);
+        }
+
         if (!features || features.length === 0) {
           map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
           tooltip.style.display = 'none';
@@ -157,11 +258,72 @@
           names.push(best.properties.name);
         }
 
-        tooltip.innerText = names.length > 0 ? names.join('\n') : 'Unknown';
+        const metricLine = (() => {
+          if (!metricsFeatures || metricsFeatures.length === 0) return null;
+          const p = metricsFeatures[0].properties || {};
+          const avg = p.avg;
+          const globalAvg = p.global_avg;
+          const ratio = p.ratio_to_avg;
+          const band = p.band;
+          if (avg == null || globalAvg == null || ratio == null || band == null) return null;
+          const avgNum = Number(avg);
+          const globalNum = Number(globalAvg);
+          const ratioNum = Number(ratio);
+          if (!Number.isFinite(avgNum) || !Number.isFinite(globalNum) || !Number.isFinite(ratioNum)) return null;
+          return `avg: ${avgNum.toFixed(0)} (bbox avg: ${globalNum.toFixed(0)}, ${ratioNum.toFixed(2)}×, band ${band})`;
+        })();
+
+        tooltip.innerText = [
+          ...(names.length > 0 ? [names.join('\n')] : ['Unknown']),
+          ...(metricLine ? [metricLine] : [])
+        ].join('\n');
         tooltip.style.display = 'block';
         tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
         tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
       });
+
+      function debounce(fn, ms) {
+        let t = null;
+        return (...args) => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => fn(...args), ms);
+        };
+      }
+
+      async function refreshAreaMetrics() {
+        try {
+          const b = map.getBounds();
+          const url = new URL(window.location.origin + '/api/area-metrics');
+          url.searchParams.set('minLon', String(b.getWest()));
+          url.searchParams.set('minLat', String(b.getSouth()));
+          url.searchParams.set('maxLon', String(b.getEast()));
+          url.searchParams.set('maxLat', String(b.getNorth()));
+          url.searchParams.set('metricId', METRIC_ID);
+          url.searchParams.set('zoom', String(map.getZoom()));
+
+          const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+          if (!res.ok) return;
+
+          const geojson = await res.json();
+          const src = map.getSource('area-metrics');
+          if (src && src.setData) src.setData(geojson);
+
+          // Update legend subtitle with the computed global average if available.
+          const subtitle = document.getElementById('legend-subtitle');
+          const features = geojson && geojson.features ? geojson.features : [];
+          const first = features.find(f => f && f.properties && f.properties.global_avg != null);
+          if (subtitle && first && first.properties && first.properties.global_avg != null) {
+            const v = Number(first.properties.global_avg);
+            if (Number.isFinite(v)) subtitle.textContent = `Relative to bbox avg (${v.toFixed(0)})`;
+          }
+        } catch (err) {
+          // best-effort overlay
+        }
+      }
+
+      const refreshAreaMetricsDebounced = debounce(refreshAreaMetrics, 250);
+      map.on('moveend', refreshAreaMetricsDebounced);
+      refreshAreaMetrics();
     });
   </script>
 </body>
