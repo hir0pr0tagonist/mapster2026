@@ -46,16 +46,65 @@ public class AreaMetricsController {
             effectiveDepth = ZoomDepthMapper.depthForOverlayZoom(zoom);
         }
 
+        // Reduce payload size and DB CPU for large polygons at low zoom by simplifying in meters.
+        Integer simplifyToleranceMeters = null;
+        Integer snapGridMeters = null;
+        if (effectiveDepth != null) {
+            switch (effectiveDepth) {
+                case 0 -> {
+                    simplifyToleranceMeters = 5000;
+                    snapGridMeters = 250;
+                }
+                case 1 -> {
+                    simplifyToleranceMeters = 2000;
+                    snapGridMeters = 100;
+                }
+                case 2 -> {
+                    simplifyToleranceMeters = 800;
+                    snapGridMeters = 50;
+                }
+                case 3 -> {
+                    simplifyToleranceMeters = 250;
+                    snapGridMeters = 20;
+                }
+                case 4 -> {
+                    simplifyToleranceMeters = 80;
+                    snapGridMeters = 5;
+                }
+                case 5 -> {
+                    simplifyToleranceMeters = 20;
+                    snapGridMeters = 2;
+                }
+                default -> {
+                    simplifyToleranceMeters = null;
+                    snapGridMeters = null;
+                }
+            }
+        }
+
+        String geomExpr;
+        if (simplifyToleranceMeters != null && snapGridMeters != null) {
+            geomExpr = "ST_Transform(" +
+                "ST_SnapToGrid(" +
+                "ST_SimplifyPreserveTopology(ST_Transform(e.geom, 3857), " + simplifyToleranceMeters + ")" +
+                ", " + snapGridMeters + ")" +
+                ", 4326)";
+        } else {
+            geomExpr = "e.geom";
+        }
+
         LocalDate effectiveTo = to != null ? to : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : effectiveTo.minusDays(30);
 
         String etag = String.format(
-            "W/\"minLon=%.5f&minLat=%.5f&maxLon=%.5f&maxLat=%.5f&depth=%s&metric=%s&from=%s&to=%s\"",
+            "W/\"minLon=%.5f&minLat=%.5f&maxLon=%.5f&maxLat=%.5f&depth=%s&metric=%s&from=%s&to=%s&s=%s&g=%s\"",
             minLon, minLat, maxLon, maxLat,
             effectiveDepth == null ? "null" : effectiveDepth,
             metricId,
             effectiveFrom,
-            effectiveTo
+            effectiveTo,
+            simplifyToleranceMeters == null ? "null" : simplifyToleranceMeters,
+            snapGridMeters == null ? "null" : snapGridMeters
         );
 
         CacheControl cacheControl = CacheControl.maxAge(10, TimeUnit.SECONDS).cachePublic();
@@ -133,7 +182,7 @@ public class AreaMetricsController {
         sql.append("  'features', COALESCE(jsonb_agg( ");
         sql.append("    jsonb_build_object( ");
         sql.append("      'type', 'Feature', ");
-        sql.append("      'geometry', ST_AsGeoJSON(e.geom, 6)::jsonb, ");
+        sql.append("      'geometry', ST_AsGeoJSON(").append(geomExpr).append(", 6)::jsonb, ");
         sql.append("      'properties', jsonb_build_object( ");
         sql.append("        'area_key', e.area_key, ");
         sql.append("        'depth', e.depth, ");
