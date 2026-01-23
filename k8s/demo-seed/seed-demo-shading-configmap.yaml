@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seed-demo-shading-sql
+  namespace: mapster
+data:
+  seed.sql: |
+    -- Seed demo metric rollups without point-in-polygon.
+    --
+    -- This populates:
+    -- - facts.metric
+    -- - facts_agg.area_metric_daily
+    --
+    -- Values are deterministic and clustered without geometry work.
+    --
+    -- We approximate "urban centers" as localized hotspots at deeper admin levels (typically depth 3),
+    -- and make nearby (same parent) areas somewhat similar via multi-level key mixing.
+    -- Re-running is safe (UPSERT overwrites the demo value).
+
+    BEGIN;
+
+    INSERT INTO facts.metric (metric_id, unit, description)
+    VALUES (
+      'price_eur_per_m2_land',
+      'EUR/m²',
+      'Demo: clustered pseudo-random land price per square meter (not real data)'
+    )
+    ON CONFLICT (metric_id) DO UPDATE
+      SET unit = EXCLUDED.unit,
+          description = EXCLUDED.description;
+
+    WITH
+      params AS (
+        SELECT
+          'price_eur_per_m2_land'::text AS metric_id,
+          current_date::date AS day,
+          2200::numeric AS base_value,
+          2.8::numeric AS hotspot_boost,
+          0.30::numeric AS w_lvl2,
+          0.18::numeric AS w_lvl1,
+          0.07::numeric AS noise
+      ),
+      areas AS (
+        SELECT
+          a.area_key,
+          a.depth AS area_depth,
+          a.gid_0,
+          a.gid_1,
+          a.gid_2,
+          a.gid_3
+        FROM geo.admin_areas a
+      ),
+      keyed AS (
+        SELECT
+          area_key,
+          area_depth,
+          -- Multi-level keys: deeper key changes more frequently (more localized pattern).
+          (COALESCE(gid_0, '') ) AS k0,
+          (COALESCE(gid_0, '') || '|' || COALESCE(gid_1, '')) AS k1,
+          (COALESCE(gid_0, '') || '|' || COALESCE(gid_1, '') || '|' || COALESCE(gid_2, '')) AS k2,
+          (COALESCE(gid_0, '') || '|' || COALESCE(gid_1, '') || '|' || COALESCE(gid_2, '') || '|' || COALESCE(gid_3, '')) AS k3
+        FROM areas
+      ),
+      seeds AS (
+        SELECT
+          area_key,
+          area_depth,
+          (SELECT metric_id FROM params) AS metric_id,
+          (SELECT day FROM params) AS day,
+          (SELECT base_value FROM params) AS base_value,
+          (SELECT hotspot_boost FROM params) AS hotspot_boost,
+          (SELECT w_lvl2 FROM params) AS w_lvl2,
+          (SELECT w_lvl1 FROM params) AS w_lvl1,
+
+          -- Deterministic 0..1 values derived from md5.
+          (
+            abs(('x' || substr(md5('k1:' || (SELECT metric_id FROM params) || ':' || k1), 1, 16))::bit(64)::bigint)::numeric
+            / 9223372036854775807::numeric
+          ) AS u1,
+          (
+            abs(('x' || substr(md5('k2:' || (SELECT metric_id FROM params) || ':' || k2), 1, 16))::bit(64)::bigint)::numeric
+            / 9223372036854775807::numeric
+          ) AS u2,
+          (
+            abs(('x' || substr(md5('k3:' || (SELECT metric_id FROM params) || ':' || k3), 1, 16))::bit(64)::bigint)::numeric
+            / 9223372036854775807::numeric
+          ) AS u3,
+          (
+            abs(('x' || substr(md5('area:' || area_key || ':' || (SELECT metric_id FROM params)), 1, 16))::bit(64)::bigint)::numeric
+            / 9223372036854775807::numeric
+          ) AS u_noise
+        FROM keyed
+      ),
+      priced AS (
+        SELECT
+          area_key,
+          area_depth,
+          metric_id,
+          day,
+          -- Hotspots: only a small fraction of "k3" cells become very expensive.
+          -- Neighbouring areas in the same k2/k1 inherit some similarity, producing a quick drop-off.
+          GREATEST(
+            base_value * 0.2,
+            base_value * (
+              1
+              + hotspot_boost * power(GREATEST(0::numeric, (u3 - 0.82::numeric) / 0.18::numeric), 2)
+              + w_lvl2 * ((u2 - 0.5) * 2.0)
+              + w_lvl1 * ((u1 - 0.5) * 2.0)
+              + (SELECT noise FROM params) * ((u_noise - 0.5) * 2.0)
+            )
+          ) AS v
+        FROM seeds
+      )
+    INSERT INTO facts_agg.area_metric_daily (
+      area_key, area_depth, metric_id, day,
+      count_value, sum_value, min_value, max_value
+    )
+    SELECT
+      area_key,
+      area_depth,
+      metric_id,
+      day,
+      1,
+      v,
+      v,
+      v
+    FROM priced
+    ON CONFLICT (area_key, metric_id, day) DO UPDATE
+      SET area_depth = EXCLUDED.area_depth,
+          count_value = EXCLUDED.count_value,
+          sum_value = EXCLUDED.sum_value,
+          min_value = EXCLUDED.min_value,
+          max_value = EXCLUDED.max_value,
+          updated_at = now();
+
+    COMMIT;

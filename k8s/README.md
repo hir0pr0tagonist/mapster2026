@@ -60,6 +60,20 @@ If you prefer a "pure k8s" approach (more cloud-like), replace the `minikube mou
   - `echo "$(minikube ip) mapster.local" | sudo tee -a /etc/hosts`
 - Browse: `http://mapster.local/`
 
+## 5) (Optional) Seed demo shading data (no point-in-polygon)
+If you want the UI to show metric shading without ingesting real observations (and without any point-in-polygon work),
+run the demo seed job. It assigns a deterministic, spatially clustered pseudo-random value to every admin area and
+stores it in `facts_agg.area_metric_daily`.
+
+- `kubectl -n mapster apply -f k8s/demo-seed/seed-demo-shading-configmap.yaml`
+- `kubectl -n mapster delete job seed-demo-shading --ignore-not-found`
+- `kubectl -n mapster apply -f k8s/demo-seed/seed-demo-shading-job.yaml`
+
+Watch the job:
+- `kubectl -n mapster logs -f job/seed-demo-shading`
+
+Then refresh `http://mapster.local/` and pick `price_eur_per_m2_land`.
+
 ## Notes for later cloud deployment (STACKIT or any managed K8s)
 - Replace local image loading with a real container registry (CI builds + versioned tags).
 - Replace the gpkg PVC population step with one of:

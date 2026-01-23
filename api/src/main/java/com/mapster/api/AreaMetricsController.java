@@ -88,17 +88,20 @@ public class AreaMetricsController {
         sql.append(") , ");
 
         sql.append("agg AS ( ");
-        sql.append("  SELECT area_key, metric_id, ");
-        sql.append("    SUM(sum_value) AS sum_value, ");
-        sql.append("    SUM(count_value) AS count_value, ");
-        sql.append("    MIN(min_value) AS min_value, ");
-        sql.append("    MAX(max_value) AS max_value ");
-        sql.append("  FROM facts_agg.area_metric_daily ");
-        sql.append("  WHERE metric_id = ? AND day >= ? AND day <= ? ");
+        sql.append("  SELECT ar.area_key, d.metric_id, ");
+        sql.append("    SUM(d.sum_value) AS sum_value, ");
+        sql.append("    SUM(d.count_value) AS count_value, ");
+        sql.append("    MIN(d.min_value) AS min_value, ");
+        sql.append("    MAX(d.max_value) AS max_value ");
+        sql.append("  FROM areas ar ");
+        sql.append("  LEFT JOIN facts_agg.area_metric_daily d ");
+        sql.append("    ON d.area_key = ar.area_key ");
+        sql.append("   AND d.metric_id = ? ");
+        sql.append("   AND d.day >= ? AND d.day <= ? ");
         params.add(metricId);
         params.add(effectiveFrom);
         params.add(effectiveTo);
-        sql.append("  GROUP BY area_key, metric_id ");
+        sql.append("  GROUP BY ar.area_key, d.metric_id ");
         sql.append(") , ");
 
         sql.append("enriched AS ( ");

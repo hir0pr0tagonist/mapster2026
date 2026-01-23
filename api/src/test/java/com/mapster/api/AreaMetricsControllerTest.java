@@ -49,7 +49,9 @@ class AreaMetricsControllerTest {
         verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), eq(String.class), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
         String sql = sqlCaptor.getValue();
-        assertThat(sql).contains("FROM facts_agg.area_metric_daily");
+        assertThat(sql).contains("facts_agg.area_metric_daily");
+        assertThat(sql).contains("FROM areas");
+        assertThat(sql).contains("LEFT JOIN facts_agg.area_metric_daily");
         assertThat(sql).contains("FROM geo.admin_areas");
         assertThat(sql).contains("LEFT JOIN agg");
         assertThat(sql).contains("AND a.depth = ?");
