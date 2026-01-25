@@ -74,6 +74,14 @@ Watch the job:
 
 Then refresh `http://mapster.local/` and pick `price_eur_per_m2_land`.
 
+### Alternative (Docker Compose / direct psql): seed rollups fast
+
+If you're running locally with Docker Compose (or you just want a quick seed without Kubernetes Jobs), you can populate rollups directly in PostGIS:
+
+- `postgis/dev/seed_dummy_metrics.sh --metric price_eur_per_m2_land --days 3 --bbox world --depths all`
+
+This fills `facts_agg.area_metric_daily` for the requested bbox + depth(s), which is enough for UI shading via `/api/area-metrics-values`.
+
 ## Notes for later cloud deployment (STACKIT or any managed K8s)
 - Replace local image loading with a real container registry (CI builds + versioned tags).
 - Replace the gpkg PVC population step with one of:

@@ -6,6 +6,9 @@ Mapster Cloud is a containerized mapping stack:
 - **Spring Boot API** serves boundaries as:
   - **Vector tiles (MVT)**: `GET /api/tiles/{z}/{x}/{y}.mvt` (fast, incremental)
   - **GeoJSON overlays**: `GET /api/overlays` (debug/inspection)
+- **Metric shading** is served as values-only JSON:
+  - `GET /api/area-metrics-values` (metrics for bbox + depth, no geometry)
+  - The browser joins metrics onto vector-tile features by `area_key` using MapLibre `feature-state`.
 - **MapLibre** frontend renders OSM raster base + boundary overlays.
 
 This repo supports:

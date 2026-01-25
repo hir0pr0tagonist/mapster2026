@@ -231,6 +231,9 @@ curl -s -o /dev/null -w "%{http_code}\n" "http://mapster.info/"
 curl -s -o /dev/null -w "%{http_code}\n" "http://mapster.info/api/actuator/health/readiness"
 curl -s -o /dev/null -w "%{http_code}\n" "http://mapster.info/api/tiles/6/33/20.mvt"
 curl -s "http://mapster.info/api/overlays?minLon=13.38&minLat=52.51&maxLon=13.40&maxLat=52.52&zoom=10" | head -c 200 && echo
+
+# Metrics-only shading payload (no geometry; UI joins by area_key via feature-state)
+curl -s -o /dev/null -w "%{http_code}\n" "http://mapster.info/api/area-metrics-values?minLon=13&minLat=52&maxLon=14&maxLat=53&metricId=price_eur_per_m2_land&depth=2"
 ```
 
 ---

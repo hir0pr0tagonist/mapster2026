@@ -48,6 +48,14 @@
   </div>
   <script src="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js"></script>
   <script>
+        // Basic error logging to make debugging in DevTools easier.
+        window.addEventListener('error', (e) => {
+          console.error('Window error:', e && e.message, e);
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+          console.error('Unhandled promise rejection:', e && e.reason, e);
+        });
+
         // Tooltip element
         const tooltip = document.createElement('div');
         tooltip.style.position = 'absolute';
@@ -92,6 +100,11 @@
       maxZoom: 11
     });
 
+    map.on('error', (e) => {
+      // MapLibre provides useful tile/style/source errors here.
+      console.error('MapLibre error:', e && (e.error || e));
+    });
+
     // Vector tiles (MVT) served by the API.
     // These auto-load as you pan/zoom, and are generally much faster than shipping large GeoJSON blobs.
 
@@ -104,6 +117,15 @@
         if (typeof v === 'string' && v.trim() !== '') depth = i;
       }
       return depth;
+    }
+
+    function depthForZoom(zoom) {
+      // Must match api ZoomDepthMapper: zoom <= 6 => 0, zoom >= 11 => 5, else z-6
+      const z = Math.floor(Number(zoom));
+      if (!Number.isFinite(z)) return 0;
+      if (z <= 6) return 0;
+      if (z >= 11) return 5;
+      return z - 6;
     }
 
     map.on('load', () => {
@@ -132,13 +154,11 @@
       map.addSource('admin-tiles', {
         type: 'vector',
         tiles: [apiBase + '/tiles/{z}/{x}/{y}.mvt'],
+          // Required for feature-state: use a stable per-area identifier as the feature id.
+          // area_key matches the metrics join key and stays stable across imports.
+          promoteId: 'area_key',
         minzoom: 0,
         maxzoom: 14
-      });
-
-      map.addSource('area-metrics', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
       });
 
       const bandToColor = {
@@ -156,7 +176,7 @@
 
       const bandColorExpression = [
         'match',
-        ['get', 'band'],
+        ['feature-state', 'band'],
         1, bandToColor[1],
         2, bandToColor[2],
         3, bandToColor[3],
@@ -178,7 +198,8 @@
         'source-layer': 'admin',
         paint: {
           'fill-color': '#000000',
-          'fill-opacity': 0
+            // Keep it effectively invisible, but non-zero so hit-testing stays reliable.
+            'fill-opacity': 0.001
         }
       });
 
@@ -190,9 +211,13 @@
         'source-layer': 'admin',
         paint: {
           'fill-color': '#00aaff',
-          'fill-opacity': 0.18
-        },
-        filter: ['==', ['get', 'id'], '']
+          'fill-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            0.18,
+            0
+          ]
+        }
       });
 
       // Outline always on top.
@@ -207,45 +232,43 @@
         }
       });
 
-      // Metric shading (GeoJSON) underneath the boundary lines.
+      // Metric shading (vector tiles) underneath the boundary lines.
+      // We color by feature-state.band, which is populated from /area-metrics-values.
       map.addLayer({
-        id: 'area-metrics-fill',
+        id: 'metrics-fill',
         type: 'fill',
-        source: 'area-metrics',
+        source: 'admin-tiles',
+        'source-layer': 'admin',
         paint: {
           'fill-color': bandColorExpression,
           'fill-opacity': 0.38
         }
-      }, 'boundaries-line');
+      }, 'boundaries-highlight');
 
-      map.addLayer({
-        id: 'area-metrics-highlight',
-        type: 'fill',
-        source: 'area-metrics',
-        paint: {
-          'fill-color': '#00aaff',
-          'fill-opacity': 0.16
-        },
-        filter: ['==', ['get', 'area_key'], '']
-      }, 'boundaries-line');
+      // Hover highlight + tooltip.
+      // Attach events to the topmost hit-test layer (`boundaries-fill`) so pointer events fire reliably.
+      let hoveredFeatureId = null;
 
-      // Single mousemove handler (no duplicates on refresh).
-      map.on('mousemove', (e) => {
-        const metricsFeatures = map.queryRenderedFeatures(e.point, { layers: ['area-metrics-fill'] });
-        const features = map.queryRenderedFeatures(e.point, { layers: ['boundaries-fill'] });
+      map.on('mouseenter', 'boundaries-fill', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
 
-        if (metricsFeatures && metricsFeatures.length > 0) {
-          const f = metricsFeatures[0];
-          const areaKey = f && f.properties ? f.properties.area_key : null;
-          if (areaKey) {
-            map.setFilter('area-metrics-highlight', ['==', ['get', 'area_key'], areaKey]);
-          }
-        } else {
-          map.setFilter('area-metrics-highlight', ['==', ['get', 'area_key'], '']);
+      map.on('mouseleave', 'boundaries-fill', () => {
+        map.getCanvas().style.cursor = '';
+        if (hoveredFeatureId != null) {
+          map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: false });
+          hoveredFeatureId = null;
         }
+        tooltip.style.display = 'none';
+      });
 
+      map.on('mousemove', 'boundaries-fill', (e) => {
+        const features = (e && e.features) ? e.features : [];
         if (!features || features.length === 0) {
-          map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
+          if (hoveredFeatureId != null) {
+            map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: false });
+            hoveredFeatureId = null;
+          }
           tooltip.style.display = 'none';
           return;
         }
@@ -261,14 +284,19 @@
           }
         }
 
-        const bestId = best && best.properties ? best.properties.id : null;
-        if (bestId == null) {
-          map.setFilter('boundaries-highlight', ['==', ['get', 'id'], '']);
+        const bestFeatureId = (best && best.id != null) ? best.id : null;
+        if (bestFeatureId == null) {
           tooltip.style.display = 'none';
           return;
         }
 
-        map.setFilter('boundaries-highlight', ['==', ['get', 'id'], bestId]);
+        if (hoveredFeatureId !== bestFeatureId) {
+          if (hoveredFeatureId != null) {
+            map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: false });
+          }
+          hoveredFeatureId = bestFeatureId;
+          map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: true });
+        }
 
         const names = [];
         for (let i = 0; i <= 5; i++) {
@@ -281,18 +309,15 @@
         }
 
         const metricLine = (() => {
-          if (!metricsFeatures || metricsFeatures.length === 0) return null;
-          const p = metricsFeatures[0].properties || {};
-          const avg = p.avg;
-          const globalAvg = p.global_avg;
-          const ratio = p.ratio_to_avg;
-          const band = p.band;
-          if (avg == null || globalAvg == null || ratio == null || band == null) return null;
-          const avgNum = Number(avg);
-          const globalNum = Number(globalAvg);
-          const ratioNum = Number(ratio);
-          if (!Number.isFinite(avgNum) || !Number.isFinite(globalNum) || !Number.isFinite(ratioNum)) return null;
-          return `avg: ${avgNum.toFixed(0)} (bbox avg: ${globalNum.toFixed(0)}, ${ratioNum.toFixed(2)}×, band ${band})`;
+          const st = map.getFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: bestFeatureId }) || {};
+          const avgNum = Number(st.avg);
+          const band = st.band;
+          if (!Number.isFinite(avgNum) || band == null) return null;
+          if (!Number.isFinite(currentGlobalAvg) || currentGlobalAvg === 0) {
+            return `avg: ${avgNum.toFixed(0)} (band ${band})`;
+          }
+          const ratioNum = avgNum / currentGlobalAvg;
+          return `avg: ${avgNum.toFixed(0)} (bbox avg: ${currentGlobalAvg.toFixed(0)}, ${ratioNum.toFixed(2)}×, band ${band})`;
         })();
 
         tooltip.innerText = [
@@ -312,32 +337,113 @@
         };
       }
 
+      let currentGlobalAvg = NaN;
+      let lastRequestKey = null;
+      let lastMetricsByAreaKey = new Map();
+
+      function roundCoord(x, decimals) {
+        const p = Math.pow(10, decimals);
+        return Math.round(x * p) / p;
+      }
+
+      function computeRequestKey() {
+        const b = map.getBounds();
+        const z = map.getZoom();
+        const effectiveDepth = computeEffectiveMetricsDepth();
+        // Keyed on a rounded bbox + zoom + metric to avoid unnecessary refetches on tiny pans.
+        return [
+          currentMetricId,
+          String(effectiveDepth),
+          roundCoord(b.getWest(), 4),
+          roundCoord(b.getSouth(), 4),
+          roundCoord(b.getEast(), 4),
+          roundCoord(b.getNorth(), 4)
+        ].join('|');
+      }
+
+      function computeEffectiveMetricsDepth() {
+        const desired = depthForZoom(map.getZoom());
+        // If tiles have been clamped (countries with missing deep levels), find the max depth actually present
+        // in currently-rendered features and clamp the metrics request to that.
+        const rendered = map.queryRenderedFeatures(undefined, { layers: ['boundaries-fill'] }) || [];
+        let maxPresent = null;
+        for (const f of rendered) {
+          const d = computeDepthFromProps(f && f.properties);
+          if (maxPresent == null || d > maxPresent) maxPresent = d;
+          if (maxPresent === 5) break;
+        }
+        if (maxPresent == null) return desired;
+        return Math.min(desired, maxPresent);
+      }
+
+      function applyMetricStatesToVisibleTiles() {
+        // Apply whatever we have cached to currently rendered features.
+        // This ensures newly loaded tiles get colored even if the last fetch was a 304.
+        const rendered = map.queryRenderedFeatures(undefined, { layers: ['boundaries-fill'] }) || [];
+        for (const f of rendered) {
+          const id = f && f.id;
+          const props = f && f.properties;
+          const areaKey = props ? props.area_key : null;
+          if (id == null || !areaKey) continue;
+
+          const m = lastMetricsByAreaKey.get(areaKey);
+          if (!m) {
+            map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id }, { band: null, avg: null });
+            continue;
+          }
+          map.setFeatureState(
+            { source: 'admin-tiles', sourceLayer: 'admin', id },
+            { band: m.band ?? null, avg: m.avg ?? null }
+          );
+        }
+      }
+
       async function refreshAreaMetrics() {
         try {
+          const requestKey = computeRequestKey();
+          if (requestKey === lastRequestKey) {
+            applyMetricStatesToVisibleTiles();
+            return;
+          }
+          lastRequestKey = requestKey;
+
           const b = map.getBounds();
-          const url = new URL(apiBase + '/area-metrics');
+          const url = new URL(apiBase + '/area-metrics-values');
           url.searchParams.set('minLon', String(b.getWest()));
           url.searchParams.set('minLat', String(b.getSouth()));
           url.searchParams.set('maxLon', String(b.getEast()));
           url.searchParams.set('maxLat', String(b.getNorth()));
           url.searchParams.set('metricId', currentMetricId);
-          url.searchParams.set('zoom', String(map.getZoom()));
+          url.searchParams.set('depth', String(computeEffectiveMetricsDepth()));
 
           const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+          if (res.status === 304) {
+            applyMetricStatesToVisibleTiles();
+            return;
+          }
           if (!res.ok) return;
 
-          const geojson = await res.json();
-          const src = map.getSource('area-metrics');
-          if (src && src.setData) src.setData(geojson);
+          const payload = await res.json();
+          const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
+
+          lastMetricsByAreaKey = new Map();
+          for (const it of items) {
+            if (!it || !it.area_key) continue;
+            lastMetricsByAreaKey.set(it.area_key, {
+              band: it.band,
+              avg: it.avg
+            });
+          }
 
           // Update legend subtitle with the computed global average if available.
           const subtitle = document.getElementById('legend-subtitle');
-          const features = geojson && geojson.features ? geojson.features : [];
-          const first = features.find(f => f && f.properties && f.properties.global_avg != null);
-          if (subtitle && first && first.properties && first.properties.global_avg != null) {
-            const v = Number(first.properties.global_avg);
-            if (Number.isFinite(v)) subtitle.textContent = `Relative to bbox avg (${v.toFixed(0)})`;
+          const v = payload ? Number(payload.global_avg) : NaN;
+          currentGlobalAvg = Number.isFinite(v) ? v : NaN;
+          if (subtitle && Number.isFinite(currentGlobalAvg)) {
+            subtitle.textContent = `Relative to bbox avg (${currentGlobalAvg.toFixed(0)})`;
           }
+
+          applyMetricStatesToVisibleTiles();
         } catch (err) {
           // best-effort overlay
         }
@@ -345,6 +451,13 @@
 
       const refreshAreaMetricsDebounced = debounce(refreshAreaMetrics, 250);
       map.on('moveend', refreshAreaMetricsDebounced);
+
+      // Re-apply cached metrics as tiles stream in.
+      const applyOnTilesDebounced = debounce(() => applyMetricStatesToVisibleTiles(), 100);
+      map.on('sourcedata', (e) => {
+        if (!e || e.sourceId !== 'admin-tiles') return;
+        applyOnTilesDebounced();
+      });
       refreshAreaMetrics();
 
       async function loadMetrics() {

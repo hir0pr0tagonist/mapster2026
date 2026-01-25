@@ -56,4 +56,37 @@ class AreaMetricsControllerTest {
         assertThat(sql).contains("LEFT JOIN agg");
         assertThat(sql).contains("AND a.depth = ?");
     }
+
+    @Test
+    void areaMetricsValuesReturnsJsonWithoutGeometryAndUsesAreaKeyJoin() throws Exception {
+        when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(Object[].class)))
+            .thenReturn("{\"metric_id\":\"price_eur_per_m2_land\",\"from\":\"2026-01-01\",\"to\":\"2026-01-22\",\"global_avg\":null,\"items\":[]}");
+
+        mockMvc.perform(
+                get("/area-metrics-values")
+                    .param("minLon", "13.38")
+                    .param("minLat", "52.51")
+                    .param("maxLon", "13.40")
+                    .param("maxLat", "52.52")
+                    .param("metricId", "price_eur_per_m2_land")
+                    .param("depth", "5")
+                    .param("from", "2026-01-01")
+                    .param("to", "2026-01-22")
+            )
+            .andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), eq(String.class), any(Object[].class));
+
+        String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("FROM geo.admin_areas");
+        assertThat(sql).contains("facts_agg.area_metric_daily");
+        assertThat(sql).contains("LEFT JOIN facts_agg.area_metric_daily");
+        assertThat(sql).contains("d.area_key = ar.area_key");
+
+        // Metrics-only endpoint should not serialize geometry.
+        assertThat(sql).doesNotContain("ST_AsGeoJSON");
+        assertThat(sql).doesNotContain("'geometry'");
+    }
 }

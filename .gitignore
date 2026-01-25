@@ -3,6 +3,9 @@
 # Build artifacts
 **/target/
 
+# Java upgrade tool artifacts
+api/.github/java-upgrade/
+
 # OS/editor cruft
 .DS_Store
 

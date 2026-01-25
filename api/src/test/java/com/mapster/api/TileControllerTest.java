@@ -75,12 +75,12 @@ class TileControllerTest {
 
         @ParameterizedTest
         @CsvSource({
-            // z, mustContain, mustNotContain
-            "5,AND a.name_1 IS NULL,AND a.name_1 IS NOT NULL",
-            "7,AND a.name_1 IS NOT NULL,AND a.name_2 IS NOT NULL",
-            "12,AND a.name_5 IS NOT NULL,AND a.name_5 IS NULL"
+            // z, expectedRequestedDepth
+            "5,0",
+            "7,1",
+            "12,5"
         })
-        void tileSqlContainsCorrectDepthFilter(int z, String mustContain, String mustNotContain) throws Exception {
+        void tileSqlContainsDepthClampingLogic(int z, int expectedRequestedDepth) throws Exception {
         when(jdbcTemplate.queryForObject(anyString(), eq(byte[].class), any(), any(), any()))
             .thenReturn(new byte[] { 0x1 });
 
@@ -91,8 +91,16 @@ class TileControllerTest {
         verify(jdbcTemplate, times(1)).queryForObject(sqlCaptor.capture(), eq(byte[].class), any(), any(), any());
 
         String sql = sqlCaptor.getValue();
-        assertThat(sql).contains(mustContain);
-        assertThat(sql).doesNotContain(mustNotContain);
+        // SQL computes per-feature depth and clamps requested depth to what's available in the tile.
+        assertThat(sql).contains("CASE");
+        assertThat(sql).contains("WHEN a.name_5 IS NOT NULL THEN 5");
+        assertThat(sql).contains("AS a_depth");
+        assertThat(sql).contains("SELECT LEAST(");
+        assertThat(sql).contains("SELECT LEAST(" + expectedRequestedDepth + ",");
+
+        // Ensure tiles expose a stable join key for client-side metric correlation.
+        assertThat(sql).contains("geo.area_key(");
+        assertThat(sql).contains("AS area_key");
         }
 }
 
