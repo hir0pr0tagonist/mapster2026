@@ -1,0 +1,107 @@
+%% Mapster database ERD (Mermaid)
+%% Generated manually from schema inspection.
+
+erDiagram
+  facts_metric {
+    text metric_id PK
+    text unit
+    text description
+    timestamptz created_at
+  }
+
+  facts_raw_raw_record {
+    bigint id PK
+    text source_system
+    text source_record_id
+    timestamptz ingested_at
+    jsonb payload
+    int payload_schema_version
+    text status
+    text error
+  }
+
+  facts_observation {
+    bigint id PK
+    bigint raw_record_id FK
+    text metric_id FK
+    numeric value
+    text unit
+    text currency
+    timestamptz observed_at
+    timestamptz ingested_at
+    geometry_point_4326 point_geom
+    text assigned_area_key "(logical join key)"
+    smallint assigned_depth
+    real source_confidence
+    text source_url
+    jsonb extra
+  }
+
+  facts_agg_area_metric_daily {
+    text area_key PK "(composite)"
+    smallint area_depth
+    text metric_id PK "(composite)"
+    date day PK "(composite)"
+    bigint count_value
+    numeric sum_value
+    numeric min_value
+    numeric max_value
+    timestamptz updated_at
+  }
+
+  geo_admin_area_ancestors {
+    text area_key PK "(composite, logical)"
+    smallint area_depth
+    text ancestor_key PK "(composite, logical)"
+    smallint ancestor_depth
+    smallint distance
+  }
+
+  public_admin_areas {
+    int id PK
+    varchar gid_0
+    varchar gid_1
+    varchar gid_2
+    varchar gid_3
+    varchar gid_4
+    varchar gid_5
+    varchar country
+    varchar name_1
+    varchar name_2
+    varchar name_3
+    varchar name_4
+    varchar name_5
+    geometry_multipolygon_4326 geom
+  }
+
+  geo_admin_areas_view {
+    text area_key "(computed from gid_0..gid_5)"
+    smallint depth
+    int id
+    varchar gid_0
+    varchar gid_1
+    varchar gid_2
+    varchar gid_3
+    varchar gid_4
+    varchar gid_5
+    varchar country
+    varchar name_1
+    varchar name_2
+    varchar name_3
+    varchar name_4
+    varchar name_5
+    geometry_multipolygon_4326 geom
+  }
+
+  %% Physical FK constraints
+  facts_metric ||--o{ facts_observation : "metric_id"
+  facts_raw_raw_record ||--o{ facts_observation : "raw_record_id"
+  facts_metric ||--o{ facts_agg_area_metric_daily : "metric_id"
+
+  %% Logical relationships (not enforced by FK constraints)
+  geo_admin_areas_view ||--o{ facts_observation : "assigned_area_key (logical)"
+  geo_admin_areas_view ||--o{ facts_agg_area_metric_daily : "area_key (logical)"
+  geo_admin_areas_view ||--o{ geo_admin_area_ancestors : "area_key / ancestor_key (logical)"
+
+  %% View lineage (not a key constraint)
+  public_admin_areas ||--o{ geo_admin_areas_view : "source rows (view)"
