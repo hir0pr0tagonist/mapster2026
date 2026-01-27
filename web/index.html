@@ -48,6 +48,8 @@
   </div>
   <script src="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js"></script>
   <script>
+        const ENABLE_TOOLTIP = false;
+
         // Basic error logging to make debugging in DevTools easier.
         window.addEventListener('error', (e) => {
           console.error('Window error:', e && e.message, e);
@@ -56,17 +58,22 @@
           console.error('Unhandled promise rejection:', e && e.reason, e);
         });
 
-        // Tooltip element
-        const tooltip = document.createElement('div');
-        tooltip.style.position = 'absolute';
-        tooltip.style.background = 'rgba(255,255,255,0.95)';
-        tooltip.style.border = '1px solid #888';
-        tooltip.style.borderRadius = '4px';
-        tooltip.style.padding = '4px 8px';
-        tooltip.style.pointerEvents = 'none';
-        tooltip.style.display = 'none';
-        tooltip.style.zIndex = '10';
-        document.body.appendChild(tooltip);
+        // Tooltip element (optional).
+        // Tooltips can be surprisingly expensive on some browser/driver combos due to frequent DOM updates.
+        const tooltip = (() => {
+          if (!ENABLE_TOOLTIP) return null;
+          const el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.background = 'rgba(255,255,255,0.95)';
+          el.style.border = '1px solid #888';
+          el.style.borderRadius = '4px';
+          el.style.padding = '4px 8px';
+          el.style.pointerEvents = 'none';
+          el.style.display = 'none';
+          el.style.zIndex = '10';
+          document.body.appendChild(el);
+          return el;
+        })();
       console.log("Mapster script loaded");
     const map = new maplibregl.Map({
       container: 'map',
@@ -259,7 +266,7 @@
           map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: false });
           hoveredFeatureId = null;
         }
-        tooltip.style.display = 'none';
+        if (tooltip) tooltip.style.display = 'none';
       });
 
       map.on('mousemove', 'boundaries-fill', (e) => {
@@ -269,7 +276,7 @@
             map.setFeatureState({ source: 'admin-tiles', sourceLayer: 'admin', id: hoveredFeatureId }, { hover: false });
             hoveredFeatureId = null;
           }
-          tooltip.style.display = 'none';
+          if (tooltip) tooltip.style.display = 'none';
           return;
         }
 
@@ -286,7 +293,7 @@
 
         const bestFeatureId = (best && best.id != null) ? best.id : null;
         if (bestFeatureId == null) {
-          tooltip.style.display = 'none';
+          if (tooltip) tooltip.style.display = 'none';
           return;
         }
 
@@ -320,13 +327,15 @@
           return `avg: ${avgNum.toFixed(0)} (bbox avg: ${currentGlobalAvg.toFixed(0)}, ${ratioNum.toFixed(2)}×, band ${band})`;
         })();
 
-        tooltip.innerText = [
-          ...(names.length > 0 ? [names.join('\n')] : ['Unknown']),
-          ...(metricLine ? [metricLine] : [])
-        ].join('\n');
-        tooltip.style.display = 'block';
-        tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
-        tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
+        if (tooltip) {
+          tooltip.innerText = [
+            ...(names.length > 0 ? [names.join('\n')] : ['Unknown']),
+            ...(metricLine ? [metricLine] : [])
+          ].join('\n');
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.originalEvent.clientX + 10) + 'px';
+          tooltip.style.top = (e.originalEvent.clientY + 10) + 'px';
+        }
       });
 
       function debounce(fn, ms) {

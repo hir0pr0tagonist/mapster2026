@@ -71,18 +71,14 @@ public class TileController {
         sql.append("      WHEN a.name_1 IS NOT NULL THEN 1");
         sql.append("      ELSE 0");
         sql.append("    END AS a_depth,");
-        sql.append("    ST_AsMVTGeom(");
-        sql.append("      ST_Transform(a.geom, 3857),");
-        sql.append("      bounds.b3857,");
-        sql.append("      4096,");
-        sql.append("      64,");
-        sql.append("      true");
-        sql.append("    ) AS geom ");
+        // Keep raw geometry in 3857 here; we will simplify after we know the effective depth for this tile.
+        // This lets us degrade fidelity at low zoom (large areas), while keeping high zoom accurate.
+        sql.append("    ST_Transform(a.geom, 3857) AS geom3857_raw ");
         sql.append("  FROM admin_areas a, bounds, env ");
         sql.append("  WHERE a.geom && env.b4326 ");
         sql.append("    AND ST_Intersects(a.geom, env.b4326) ");
         sql.append("    AND a.country IS NOT NULL ");
-        sql.append("), target AS (");
+        sql.append("), target AS MATERIALIZED (");
         // Clamp requested depth to what is actually available within this tile.
         // This prevents empty tiles (no borders) in countries that lack deeper admin levels.
         sql.append("  SELECT LEAST(").append(depth).append(", COALESCE(MAX(a_depth), 0)) AS depth FROM candidates");
@@ -92,16 +88,33 @@ public class TileController {
         sql.append("    c.gid_0, c.gid_1, c.gid_2, c.gid_3, c.gid_4, c.gid_5,");
         sql.append("    c.area_key,");
         sql.append("    c.name_0, c.name_1, c.name_2, c.name_3, c.name_4, c.name_5,");
-        sql.append("    c.geom ");
-        sql.append("  FROM candidates c, target ");
+        // Fidelity tuning: as we zoom out, simplify geometry more aggressively.
+        // IMPORTANT for performance: simplify *after* ST_AsMVTGeom clipping (tile-local coordinates).
+        // Doing heavy topology-preserving simplification in EPSG:3857 per feature made some tiles extremely slow.
+        // The epsilons below are in tile units (0..4096), not meters.
+        sql.append("    ST_AsMVTGeom(c.geom3857_raw, bounds.b3857, 4096, 64, true) AS geom_raw ");
+        sql.append("  FROM candidates c, target, bounds ");
         sql.append("  WHERE c.a_depth = target.depth ");
         sql.append("  ORDER BY c.gid_0, c.gid_1, c.gid_2, c.gid_3, c.gid_4, c.gid_5, c.id");
+        sql.append("), mvt_simplified AS (");
+        sql.append("  SELECT ");
+        sql.append("    id, gid_0, gid_1, gid_2, gid_3, gid_4, gid_5, area_key, ");
+        sql.append("    name_0, name_1, name_2, name_3, name_4, name_5, ");
+        sql.append("    CASE target.depth ");
+        sql.append("      WHEN 0 THEN ST_Simplify(geom_raw, 12) ");
+        sql.append("      WHEN 1 THEN ST_Simplify(geom_raw, 8) ");
+        sql.append("      WHEN 2 THEN ST_Simplify(geom_raw, 6) ");
+        sql.append("      WHEN 3 THEN ST_Simplify(geom_raw, 4) ");
+        sql.append("      WHEN 4 THEN ST_Simplify(geom_raw, 2) ");
+        sql.append("      ELSE geom_raw ");
+        sql.append("    END AS geom ");
+        sql.append("  FROM mvt, target ");
         sql.append(") ");
         // Ensure vector-tile features have a stable feature id so MapLibre feature-state works.
         // (We keep the 'id' property too, but this sets the MVT feature id explicitly.)
-        sql.append("SELECT COALESCE(ST_AsMVT(mvt, 'admin', 4096, 'geom', 'id'), ''::bytea) ");
-        sql.append("FROM mvt ");
-        sql.append("WHERE mvt.geom IS NOT NULL;");
+        sql.append("SELECT COALESCE(ST_AsMVT(mvt_simplified, 'admin', 4096, 'geom', 'id'), ''::bytea) ");
+        sql.append("FROM mvt_simplified ");
+        sql.append("WHERE mvt_simplified.geom IS NOT NULL;");
 
         try {
             logger.info("[DEBUG] getTile z={}, x={}, y={}, depth={}", z, x, y, depth);
