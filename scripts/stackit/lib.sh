@@ -26,20 +26,21 @@ stackit_base_args() {
 
 stackit_base_args_common() {
   # project-id is mandatory for almost everything
-  echo "--project-id" "${STACKIT_PROJECT_ID}" "--verbosity" "info" "--assume-yes" "--region" "${STACKIT_REGION}"
+  echo --project-id "${STACKIT_PROJECT_ID}" --verbosity info --assume-yes --region "${STACKIT_REGION}"
 }
 
 stackit_base_args_json() {
-  echo "$(stackit_base_args_common)" "--output-format" "json"
+  echo $(stackit_base_args_common) --output-format json
 }
 
 stackit_json() {
-  stackit "$(stackit_base_args_json)" "$@"
+  # Intentionally unquoted: we want the base args to expand to multiple argv tokens.
+  stackit $(stackit_base_args_json) "$@"
 }
 
 stackit_cmd() {
   # Like stackit_json, but doesn't force output format (needed for kubeconfig writing).
-  stackit "$(stackit_base_args_common)" "$@"
+  stackit $(stackit_base_args_common) "$@"
 }
 
 state_init() {
