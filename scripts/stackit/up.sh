@@ -12,6 +12,11 @@ require_cmd python3
 require_env STACKIT_PROJECT_ID
 require_env STACKIT_REGION
 
+# Optional: provision an SKE cluster (and kubeconfig) as part of "everything".
+# Defaults are conservative; node machine type is capped at 4 vCPU / 16GB RAM.
+STACKIT_CREATE_SKE_CLUSTER="${STACKIT_CREATE_SKE_CLUSTER:-false}"
+STACKIT_SKE_CLUSTER_NAME="${STACKIT_SKE_CLUSTER_NAME:-}"
+
 STACKIT_PG_NAME="${STACKIT_PG_NAME:-mapster-db}"
 STACKIT_PG_CPU="${STACKIT_PG_CPU:-2}"
 STACKIT_PG_RAM="${STACKIT_PG_RAM:-4}"
@@ -28,6 +33,14 @@ KUBE_REGISTRY_SECRET_NAME="${KUBE_REGISTRY_SECRET_NAME:-regcred}"
 KUBE_OBJECT_STORAGE_SECRET_NAME="${KUBE_OBJECT_STORAGE_SECRET_NAME:-object-storage-secret}"
 
 echo "[1/4] Provisioning PostgresFlex instance (if needed)..." >&2
+
+if [[ "$STACKIT_CREATE_SKE_CLUSTER" == "true" || -n "$STACKIT_SKE_CLUSTER_NAME" ]]; then
+  echo "[0/4] Ensuring SKE cluster + kubeconfig..." >&2
+  "$SCRIPT_DIR/cluster_up.sh"
+  if [[ -n "${STACKIT_SKE_KUBECONFIG_PATH:-}" ]]; then
+    export KUBECONFIG="$STACKIT_SKE_KUBECONFIG_PATH"
+  fi
+fi
 if instance_id=$(state_get postgresInstanceId 2>/dev/null); then
   echo "Using existing instance from state: $instance_id" >&2
 else

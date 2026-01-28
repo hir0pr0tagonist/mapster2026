@@ -76,6 +76,33 @@ export STACKIT_PG_PORT="5432"
 ./scripts/stackit/up.sh
 ```
 
+### Optional: provision the Kubernetes cluster via CLI
+
+If you want the scripts to also provision an SKE cluster (instead of doing it manually in the UI), set:
+
+```sh
+export STACKIT_CREATE_SKE_CLUSTER=true
+export STACKIT_SKE_CLUSTER_NAME="mapster"
+
+# Defaults are capped to match your request: max 4 vCPU / 16GB RAM per node
+export STACKIT_SKE_MAX_CPU=4
+export STACKIT_SKE_MAX_RAM_GB=16
+export STACKIT_SKE_NODE_COUNT=2
+
+# Optional: override machine type explicitly if auto-pick fails
+# export STACKIT_SKE_MACHINE_TYPE="<machine-type>"
+```
+
+This uses [scripts/stackit/cluster_up.sh](scripts/stackit/cluster_up.sh) under the hood and writes a kubeconfig to:
+
+- [scripts/stackit/kubeconfig.<cluster>](scripts/stackit)
+
+You can run it standalone too:
+
+```sh
+./scripts/stackit/cluster_up.sh
+```
+
 This will:
 
 1) Create a PostgresFlex instance.
@@ -87,6 +114,28 @@ This will:
 
 ```sh
 ./scripts/stackit/down.sh
+```
+
+To also delete the SKE cluster (only if you explicitly want that):
+
+```sh
+export STACKIT_SKE_CLUSTER_NAME="mapster"
+export STACKIT_DELETE_SKE_CLUSTER=true
+./scripts/stackit/down.sh
+```
+
+Or run the cluster teardown directly:
+
+```sh
+./scripts/stackit/cluster_down.sh
+```
+
+## Preflight
+
+To get as close as possible to a “dry run” (auth + machine-type discovery + kubectl connectivity):
+
+```sh
+./scripts/stackit/preflight.sh
 ```
 
 This will:
