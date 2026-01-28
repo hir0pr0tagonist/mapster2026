@@ -84,6 +84,8 @@ Activate it for your shell:
 
 ```sh
 export STACKIT_SERVICE_ACCOUNT_KEY_PATH="$PWD/service_account_key.json"
+# If your UI generated a separate private key file too, you can (optionally) pass it explicitly:
+# export STACKIT_PRIVATE_KEY_PATH="$PWD/private.key"
 ./scripts/stackit/auth.sh
 ```
 

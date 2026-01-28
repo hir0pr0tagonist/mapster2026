@@ -11,3 +11,13 @@ api/.github/java-upgrade/
 
 # Kubeconfigs / cluster credentials
 mapster.yml
+
+# STACKIT scripting artifacts / secrets
+scripts/stackit/state.json
+scripts/stackit/kubeconfig.*
+scripts/stackit/.ske-payload.*.json
+
+# Service-account key material (keep out of git)
+**/service_account_key.json
+**/*.pem
+**/*.key
