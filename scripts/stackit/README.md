@@ -23,7 +23,7 @@ Export required env vars (example):
 
 ```sh
 export STACKIT_PROJECT_ID="eeadbd4a-148a-4005-b046-5362ef9ad86f"
-export STACKIT_REGION="<STACKIT_REGION>"  # e.g. the southern Germany region identifier
+export STACKIT_REGION="<STACKIT_REGION>"  # e.g. EU01 (Germany South) region identifier
 
 # PostgresFlex instance settings
 export STACKIT_PG_NAME="mapster-db"
@@ -61,6 +61,36 @@ Tip: to find the exact region string, run:
 
 ```sh
 stackit project describe "$STACKIT_PROJECT_ID" --output-format json
+```
+
+## Authentication (service account key)
+
+Recommended for automation is a service account key file (keep it out of git).
+
+Create the service account:
+
+```sh
+stackit service-account create --name mapster-sa --project-id "$STACKIT_PROJECT_ID" --region "$STACKIT_REGION" --output-format json
+```
+
+The command returns an email like `...@sa.stackit.cloud`. Create a key for that email (this returns JSON that includes the private key once):
+
+```sh
+stackit service-account key create --email "<SA_EMAIL>" --project-id "$STACKIT_PROJECT_ID" --region "$STACKIT_REGION" --output-format json > service_account_key.json
+chmod 600 service_account_key.json
+```
+
+Activate it for your shell:
+
+```sh
+export STACKIT_SERVICE_ACCOUNT_KEY_PATH="$PWD/service_account_key.json"
+./scripts/stackit/auth.sh
+```
+
+Then run:
+
+```sh
+./scripts/stackit/preflight.sh
 ```
 
 If `up.sh` cannot auto-detect the Postgres endpoint from `stackit postgresflex instance describe`, you can override:
