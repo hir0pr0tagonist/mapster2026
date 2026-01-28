@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - base/namespace.yaml
+  - base/api-deployment.yaml
+  - base/api-service.yaml
+  - base/web-deployment.yaml
+  - base/web-service.yaml
+  - base/ingress.yaml
+  - base/import-job.yaml
+  - base/seed-demo-shading-configmap.yaml
+  - base/seed-demo-shading-job.yaml
+
+# Keep image overrides aligned with the regular STACKIT overlay.
+images:
+  - name: mapster-cloud-api
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-api
+    newTag: 0.1.1
+  - name: mapster-cloud-web
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-web
+    newTag: 0.1.0
+  - name: mapster-cloud-import
+    newName: registry.onstackit.cloud/mapster/mapster-cloud-import
+    newTag: 0.1.0
+
+patches:
+  # Download GPKG from object storage.
+  - path: patches/import-job-s3-patch.yaml
+
+  # Observability annotations.
+  - path: patches/api-deployment-observability-patch.yaml
+
+  # Registry pull secrets.
+  - path: patches/api-image-pull-secret-patch.yaml
+  - path: patches/web-image-pull-secret-patch.yaml
+  - path: patches/import-job-image-pull-secret-patch.yaml
+
+  # Managed Postgres-specific patches.
+  - path: patches/api-use-managed-db-secret.yaml
+  - path: patches/import-use-managed-db-secret.yaml
+  - path: patches/seed-use-managed-db-secret.yaml
+
+  # Replace the ingress host (base uses mapster.local).
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: mapster
+    patch: |-
+      - op: add
+        path: /spec/ingressClassName
+        value: nginx
+      - op: replace
+        path: /spec/rules/0/host
+        value: mapster.info

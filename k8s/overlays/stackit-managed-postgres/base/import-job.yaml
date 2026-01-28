@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: import-admin-areas
+  namespace: mapster
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: import
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-db
+          image: postgis/postgis:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: db-secret
+          command:
+            - sh
+            - -c
+            - |
+              set -euo pipefail
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do
+                echo "waiting for postgres...";
+                sleep 2;
+              done
+      containers:
+        - name: import
+          image: mapster-cloud-import:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              exec /usr/local/bin/upload_geopackage.sh
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGHOST
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGPORT
+            - name: GPKG_PATH
+              value: /host-geodata/gadm_410-levels.gpkg
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGDATABASE
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGUSER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGPASSWORD
+          volumeMounts:
+            - name: host-geodata
+              mountPath: /host-geodata
+      volumes:
+        - name: host-geodata
+          hostPath:
+            path: /host/geodata
+            type: Directory

@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-demo-shading
+  namespace: mapster
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:16
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGHOST
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGPORT
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGDATABASE
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGUSER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: PGPASSWORD
+          volumeMounts:
+            - name: seed-sql
+              mountPath: /sql
+              readOnly: true
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              echo "Seeding demo shading data into Postgres..."
+              psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 -f /sql/seed.sql
+              echo "Done."
+      volumes:
+        - name: seed-sql
+          configMap:
+            name: seed-demo-shading-sql
